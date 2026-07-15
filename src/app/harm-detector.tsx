@@ -7,7 +7,8 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { LLMTool, Message, models, useLLM } from "react-native-executorch";
+import { LLMTool, models, useLLM } from "react-native-executorch";
+import { verifyTranscriptAndInvokeToolIfRequire } from "./utils/tool_selection_and_invoker";
 
 const SYSTEM_PROMPT =
   `You're an intelligent Safety assistant. You can helps to do a safety action if it is required. You're provided with set of tools. Those tools can perform a safety action. So you're responsibility is select a suitable tool for safety action`;
@@ -26,17 +27,19 @@ export default function HarmDetector() {
 ];
 
   const handleCheck = async () => {
-    if (!input.trim() || !llm.isReady || llm.isGenerating) return;
+  //   if (!input.trim() || !llm.isReady || llm.isGenerating) return;
 
-    const chat: Message[] = [
-      { role: "system", content: SYSTEM_PROMPT },
-      { role: "user", content: input },
-    ];
+  //   const chat: Message[] = [
+  //     { role: "system", content: SYSTEM_PROMPT },
+  //     { role: "user", content: input },
+  //   ];
 
-     // Chat completion - returns the generated response
-  const response = await llm.generate(chat, TOOL_DEFINITIONS);
-  console.log(parseToolCalls(response), 'response')
-  console.log('Complete response:', response);
+  //    // Chat completion - returns the generated response
+  // const response = await llm.generate(chat, TOOL_DEFINITIONS);
+  // console.log(parseToolCalls(response), 'response')
+  // console.log('Complete response:', response);
+  console.log(input)
+  verifyTranscriptAndInvokeToolIfRequire(input, llm)
   };
 
   function parseToolCalls(raw: string) {
