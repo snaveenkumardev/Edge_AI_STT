@@ -6,12 +6,19 @@ import { LLMTool, Message, models, useLLM, useSpeechToText } from 'react-native-
 const AUDIO_SAMPLE_RATE = 16000;
 
 const SYSTEM_PROMPT =
-  `You're an intelligent Safety assistant. You can helps to do a safety action if it is required. You're provided with set of tools. Those tools can perform a safety action. So you're responsibility is select a suitable tool for safety action`;
+  `You are a safety-triage assistant for a mobile app. The user's message is a speech-to-text transcript of what they said out loud, not typed text — expect missing punctuation, mistranscribed or dropped words, run-on phrasing, and background-noise artifacts. Infer the user's intent from the likely spoken meaning rather than the literal transcript, and do not treat transcription noise as the user's actual request.
+
+Rules:
+1. Call a tool only if the (inferred) situation clearly matches its description. Do not call a tool "just in case".
+2. If the situation involves danger, injury, threat, or the user being unsafe/unable to help themselves, prefer a safety/emergency-labeled tool over any other tool, even if another tool is a partial match.
+3. If no tool applies, return an empty list — do not invent a tool or answer conversationally.
+4. If required tool parameters are missing or garbled in the transcript, still call the tool with the parameters you can infer; do not ask a follow-up question.
+5. Respond with ONLY a JSON array of tool calls in the form [{"name": "...", "arguments": {...}}], and nothing else — no explanation, no markdown.`;
 
 const TOOL_DEFINITIONS: LLMTool[] = [
   {
-    name: 'emergency',
-    description: "Emergency situation handler. If any emergency event occurs, this can be helps to resolve it",
+    name: 'emergency_helper',
+    description: "SAFETY-CRITICAL. Use whenever the user reports danger, injury, being lost, feeling unsafe, threats, or needing urgent help. Takes priority over all other tools when the situation is ambiguous.",
     // description: 'start the record',
     parameters: {},
   },
@@ -60,13 +67,20 @@ export default function LiveTranscriber() {
   };
 
   const selectToolFromTranscript = async (transcript: string) => {
-    if (!transcript.trim()) return;
+    const trimmedTranscript = transcript.trim();
 
+    if (!trimmedTranscript) {
+      Alert.alert("No Input", "No Input")
+      return;
+    };
+    console.log('Tool selection')
     setIsSelectingTool(true);
     try {
+      const userPrompt = trimmedTranscript;
+      console.log(userPrompt, 'prompt')
       const chat: Message[] = [
         { role: 'system', content: SYSTEM_PROMPT },
-        { role: 'user', content: transcript },
+        { role: 'user', content: userPrompt },
       ];
       const response = await toolSelectionModel.generate(chat, TOOL_DEFINITIONS);
       const parsedToolResponse = parseToolCalls(response);
@@ -75,6 +89,7 @@ export default function LiveTranscriber() {
     //   setToolResponse(response);
     // toolInvoker(response)
     } catch (error) {
+      console.log("Error", error)
       setProcessError(error instanceof Error ? error.message : String(error));
     } finally {
       setIsSelectingTool(false);
@@ -87,6 +102,7 @@ export default function LiveTranscriber() {
 
     try {
       const stopResult = await recorder.stop();
+      console.log("Record Stopped")
       if (stopResult.status === 'error') throw new Error(stopResult.message);
 
       const filePath = stopResult.paths[0];
@@ -121,16 +137,21 @@ export default function LiveTranscriber() {
     }
 
   function toolInvoker(toolResponse: ToolResponse) {
-    if (toolResponse.length === 0) return;
+    if (toolResponse.length === 0) {
+      Alert.alert("Tool", "No Tool selected");
+      return;
+    };
 
     const tool = toolResponse[0];
-    if (tool.name === 'emergency') {
+    if (tool.name === 'emergency_helper') {
       emergencyTool();
+    } else {
+      Alert.alert("Tool", "No Tool selected")
     }
   }
 
   function emergencyTool() {
-    Alert.alert("I understand, You're in Emergency situation. I will help you to resolve it soon.")
+    Alert.alert("I understand, You're in Emergency situation. I will help you to resolve.")
   }
 
    if (speechToTextModel?.error || toolSelectionModel?.error) {
@@ -214,7 +235,7 @@ export default function LiveTranscriber() {
        
         <View style= {{flex: 1, justifyContent: 'center', alignItems: 'center'}}>
             <TouchableOpacity style= {[styles.startAndStopBtnContainer, {backgroundColor: isRecording ? 'red' : 'green'}]} onPress={isRecording  ? stopRecordingAndTranscribe : startRecording}>
-                <Text style= {styles.startAndStopBtnLabel}>Start Record</Text>
+                <Text style= {styles.startAndStopBtnLabel}>{isRecording  ? 'Stop ' : 'Start '}Record</Text>
             </TouchableOpacity>
             
         </View>
