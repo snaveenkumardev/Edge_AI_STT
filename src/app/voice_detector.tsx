@@ -1,15 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View
 } from "react-native";
 import { AudioManager, AudioRecorder } from "react-native-audio-api";
-import { models, useLLM, useSpeechToText } from "react-native-executorch";
+import { Message, models, useLLM, useSpeechToText } from "react-native-executorch";
 import ButtonUI from "./component/ButtonUI";
+import ChatUI from "./component/ChatUI";
 import { verifyTranscriptAndInvokeToolIfRequire } from "./utils/tool_selection_and_invoker";
 
 const AUDIO_SAMPLE_RATE = 16000;
@@ -21,10 +21,11 @@ interface TranscriptsType {
 }
 
 export default function VoiceDetector() {
-  const [transcripts, setTranscripts] = useState<TranscriptsType[] | []>([]);
+  const [llmConversations, setLLMConversations] = useState<Message[] | []>([]);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [processError, setProcessError] = useState<string | null>(null);
   const [isLiveVoiceTranscriptionActive, setIsLiveVoiceTranscriptionActive] = useState(false);
+  const [analyzeTranscriptInterval, setAnalyzeTranscriptInterval] = useState({})
 
 
   // Live audio stream
@@ -40,6 +41,22 @@ export default function VoiceDetector() {
   const liveVoiceTranscriptRef = useRef("")
   const transcriptVerifierIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const transcriptStartPositionRef = useRef(0);
+
+
+  useEffect(()=> {
+    if (transcriptVerifierIntervalRef?.current != null) {
+      userVoiceTranscriptHandler()
+    }
+  }, [analyzeTranscriptInterval])
+
+
+  useEffect(() => {
+    return () => {
+      if (transcriptVerifierIntervalRef.current) {
+        clearInterval(transcriptVerifierIntervalRef.current);
+      }
+    };
+  }, []);
 
 
 
@@ -66,7 +83,8 @@ export default function VoiceDetector() {
     await recorder.start();
     setIsLiveVoiceTranscriptionActive(true);
     transcriptVerifierIntervalRef.current = setInterval(() => {
-      userVoiceTranscriptVerifier();
+      // userVoiceTranscriptHandler();
+      setAnalyzeTranscriptInterval({})
     }, 5000);
 
     // 3. Process the stream with VAD enabled
@@ -106,15 +124,8 @@ export default function VoiceDetector() {
   };
 
 
-  useEffect(() => {
-    return () => {
-      if (transcriptVerifierIntervalRef.current) {
-        clearInterval(transcriptVerifierIntervalRef.current);
-      }
-    };
-  }, []);
-
-  const userVoiceTranscriptVerifier = ()=> {
+  const userVoiceTranscriptHandler = ()=> {
+    console.log("transcript handler trigger")
     // No transcript
     const trimmedLiveVoiceTranscript = liveVoiceTranscriptRef.current.trim()
     if (!trimmedLiveVoiceTranscript) {
@@ -123,11 +134,23 @@ export default function VoiceDetector() {
     // Transcript available
     console.log(trimmedLiveVoiceTranscript, "Voice to Transcript")
     const slicedTranscript = trimmedLiveVoiceTranscript.slice(transcriptStartPositionRef.current)
-    transcriptStartPositionRef.current = trimmedLiveVoiceTranscript.length;
-    setTranscripts((prevTranscripts)=> {
-      return [...prevTranscripts, {user: slicedTranscript}]
-    })
-    verifyTranscriptAndInvokeToolIfRequire(slicedTranscript, toolSelectorModel)
+    console.log(slicedTranscript, 'sliced')
+    console.log(transcriptStartPositionRef.current)
+    if (slicedTranscript.trim()) {
+      transcriptStartPositionRef.current = transcriptStartPositionRef.current + slicedTranscript.length;
+      const llmPrevAndCurrentConversation: Message[] = [...llmConversations, { role: "user", content: slicedTranscript }]
+      console.log(llmPrevAndCurrentConversation, 'conversation')
+      setLLMConversations(llmPrevAndCurrentConversation)
+      verifyTranscriptAndInvokeToolHandler([{ role: "user", content: slicedTranscript }])
+    }
+  }
+
+  async function verifyTranscriptAndInvokeToolHandler(llmPrevAndCurrentConversation: Message[]) {
+   const llmToolSelectionResponse = await verifyTranscriptAndInvokeToolIfRequire(llmPrevAndCurrentConversation, toolSelectorModel);
+   console.log(llmToolSelectionResponse, 'tool response')
+   setLLMConversations((prev_llm_conversation)=> {
+    return [...prev_llm_conversation, llmToolSelectionResponse]
+   })
   }
 
 
@@ -152,6 +175,14 @@ export default function VoiceDetector() {
   //     setIsTranscribing(false);
   //   }
   // };
+
+  // TEMP: static sample data for visually verifying ChatUI, remove after checking
+  const staticSampleConversations: Message[] = [
+    { role: "user", content: "Turn on safety mode." },
+    { role: "assistant", content: "Sure, enabling safety mode now." },
+    { role: "user", content: "What's the current status?" },
+    { role: "assistant", content: "Safety mode is currently ON." },
+  ];
 
   if (stt.error || toolSelectorModel.error) {
     return (
@@ -195,12 +226,7 @@ export default function VoiceDetector() {
           </TouchableOpacity>
         </View>
         <View style= {{flex: 1, marginTop: 10, ...styles.liveStatusBanner, alignItems: 'flex-start'}}>
-          <ScrollView>
-            {/* {
-              transcripts.map((transcript))
-            } */}
-          </ScrollView>
-
+          <ChatUI llmConversations={llmConversations} />
         </View>
         </>
        
