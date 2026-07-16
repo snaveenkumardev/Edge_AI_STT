@@ -7,7 +7,7 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { LLMTool, models, useLLM } from "react-native-executorch";
+import { LLMTool, Message, models, useLLM } from "react-native-executorch";
 import { verifyTranscriptAndInvokeToolIfRequire } from "./utils/tool_selection_and_invoker";
 
 const SYSTEM_PROMPT =
@@ -15,6 +15,7 @@ const SYSTEM_PROMPT =
 
 export default function HarmDetector() {
   const [input, setInput] = useState("");
+  const [llmconversation, setLLMConversation] = useState<Message[] | []>([])
   const llm = useLLM({ model: models.llm.hammer2_1_0_5b({ quant: true }) });
 
   const TOOL_DEFINITIONS: LLMTool[] = [
@@ -27,19 +28,14 @@ export default function HarmDetector() {
 ];
 
   const handleCheck = async () => {
-  //   if (!input.trim() || !llm.isReady || llm.isGenerating) return;
-
-  //   const chat: Message[] = [
-  //     { role: "system", content: SYSTEM_PROMPT },
-  //     { role: "user", content: input },
-  //   ];
-
+    if (!input.trim() || !llm.isReady || llm.isGenerating) return;
+    const conversation: Message[]= [...llmconversation, {role: 'user', content: input.trim()}]
+    setLLMConversation(conversation)
   //    // Chat completion - returns the generated response
   // const response = await llm.generate(chat, TOOL_DEFINITIONS);
   // console.log(parseToolCalls(response), 'response')
   // console.log('Complete response:', response);
-  console.log(input)
-  verifyTranscriptAndInvokeToolIfRequire(input, llm)
+  verifyTranscriptAndInvokeToolIfRequire(conversation, llm)
   };
 
   function parseToolCalls(raw: string) {
