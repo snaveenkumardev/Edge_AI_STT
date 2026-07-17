@@ -1,56 +1,36 @@
-# Welcome to your Expo app 👋
+# TrailApp
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+An [Expo Router](https://docs.expo.dev/router/introduction) app (Expo SDK 57) targeting iOS, Android, and web from one codebase.
+
+## Prerequisites
+
+This project depends on native modules (`react-native-audio-api`, `react-native-executorch`) that are wired in via config plugins in [app.json](app.json). Because of this custom native code, **the app cannot run in Expo Go** — you need a development build.
 
 ## Get started
 
-1. Install dependencies
+1. Install dependencies (`yarn.lock` is the source of truth, not `package-lock.json`)
 
    ```bash
-   npm install
+   yarn install
    ```
 
-2. Start the app
+2. Build and install a development build
+
+   Native code changed (or this is your first run), so build and launch the dev client on a simulator/emulator or device:
 
    ```bash
-   npx expo start
+   yarn ios       # build + run on iOS simulator/Device
+   yarn android   # build + run on Android emulator/Device
    ```
 
-In the output, you'll find options to open the app in a
+   This compiles the native project and installs an [`expo-dev-client`](https://docs.expo.dev/develop/development-builds/introduction/) build with your custom native modules included.
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+3. For subsequent runs, start the dev server and reload the existing development build (no need to rebuild unless native dependencies or config plugins change):
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+   ```bash
+   yarn start
+   ```
 
-## Get a fresh project
+### Rebuilding
 
-When you're ready, run:
-
-```bash
-npm run reset-project
-```
-
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
-
-### Other setup steps
-
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
-
-## Learn more
-
-To learn more about developing your project with Expo, look at the following resources:
-
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
-
-## Join the community
-
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+Re-run `yarn ios` / `yarn android` whenever you add/update a native dependency, change `app.json` plugin config, or the generated `ios`/`android` folders are out of date.
