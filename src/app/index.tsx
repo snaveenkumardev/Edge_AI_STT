@@ -8,16 +8,8 @@ export default function Index() {
     <View style={styles.container}>
       <Text>Edit src/app/index.tsx to edit</Text>
       <Button
-        title="Harm Detector"
-        onPress={() => router.push("/harm-detector")}
-      />
-       <Button
         title="Voice Detector"
         onPress={() => router.push("/voice_detector")}
-      />
-       <Button
-        title="Live audio transcribe"
-        onPress={() => router.push("/live_voice_transcripe")}
       />
     </View>
   );
