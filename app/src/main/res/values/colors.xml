@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Brand colors -->
+    <color name="background_light">#F7F8FC</color>
+    <color name="background_dark">#171F3A</color>
+    
+    <color name="dark_navy">#171F3A</color> <!-- Strong accent/buttons -->
+    <color name="blue_icon">#4E8DFF</color> <!-- Icon accents -->
+    <color name="purple_glow">#6B5CFF</color> <!-- Border glow -->
+    
+    <!-- Text and structural colors -->
+    <color name="primary_text">#2B2F3A</color>
+    <color name="muted_text">#AAB2C3</color>
+    <color name="divider">#AAB2C3</color>
+    
+    <!-- Standard colors -->
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+</resources>

@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<font-family xmlns:app="http://schemas.android.com/apk/res-auto">
+    <!-- Regular weight 400 -->
+    <font
+        app:fontStyle="normal"
+        app:fontWeight="400"
+        app:font="@font/google_sans_regular" />
+    
+    <!-- Medium weight 500 -->
+    <font
+        app:fontStyle="normal"
+        app:fontWeight="500"
+        app:font="@font/google_sans_medium" />
+    
+    <!-- Bold weight 700 -->
+    <font
+        app:fontStyle="normal"
+        app:fontWeight="700"
+        app:font="@font/google_sans_bold" />
+    
+    <!-- Italic style for regular weight -->
+    <font
+        app:fontStyle="italic"
+        app:fontWeight="400"
+        app:font="@font/google_sans_italic" />
+</font-family>
