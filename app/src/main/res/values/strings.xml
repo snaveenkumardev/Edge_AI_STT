@@ -1,3 +1,22 @@
 <resources>
     <string name="app_name">SafetyMode</string>
+
+    <!-- AI Assistant Activate screen -->
+    <string name="ai_assistant_app_title">Guardian AI</string>
+    <string name="ai_assistant_profile">Profile</string>
+    <string name="ai_assistant_avatar">Guardian AI assistant</string>
+    <string name="ai_assistant_verified_badge">Verified assistant</string>
+    <string name="ai_assistant_status_ready">Assistant Ready</string>
+    <string name="ai_assistant_status_active">Assistant Active</string>
+    <string name="ai_assistant_status_ready_detail">Secure real-time monitoring and emergency response is currently on standby.</string>
+    <string name="ai_assistant_status_active_detail">Secure real-time monitoring and emergency response is now live.</string>
+    <string name="ai_assistant_power_off">Power Off</string>
+    <string name="ai_assistant_power_on">Power On</string>
+    <string name="ai_assistant_activate">Activate assistant</string>
+    <string name="ai_assistant_deactivate">Deactivate assistant</string>
+    <string name="ai_assistant_protocol">Protocol: Safeguard Beta v2.4</string>
+    <string name="ai_assistant_location_label">Location</string>
+    <string name="ai_assistant_location_value">Tracking On</string>
+    <string name="ai_assistant_vitals_label">Vitals</string>
+    <string name="ai_assistant_vitals_value">Synced</string>
 </resources>
