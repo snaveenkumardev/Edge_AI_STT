@@ -1,36 +1,33 @@
-# TrailApp
+# Edge AI STT - Native Android (Kotlin)
 
-An [Expo Router](https://docs.expo.dev/router/introduction) app (Expo SDK 57) targeting iOS, Android, and web from one codebase.
+A high-performance Native Android application for **On-Device Speech-to-Text**, **FunctionGemma Tool Calling / Intent Triage**, and **Real-Time Edge AI Performance Vitals Monitoring**.
 
-## Prerequisites
+---
 
-This project depends on native modules (`react-native-audio-api`, `react-native-executorch`) that are wired in via config plugins in [app.json](app.json). Because of this custom native code, **the app cannot run in Expo Go** — you need a development build.
+## ⚡ Features
 
-## Get started
+1. **FunctionGemma Tool Calling (Google AI Edge / MediaPipe)**:
+   - Evaluates user transcript & text input locally on-device.
+   - Detects safety intents and triggers native Android tool actions (e.g. `emergency_helper`).
+2. **Whisper STT Audio Streaming (Sherpa-ONNX & AudioRecord)**:
+   - High-efficiency 16kHz 16-bit PCM microphone streaming via native Android `AudioRecord`.
+   - Voice Activity Detection (VAD) audio segmenting.
+3. **AI Performance Vitals Dashboard & HUD**:
+   - **Token Speed**: Live Tokens Per Second (`tok/s`) during LLM generation.
+   - **Latency**: Time-To-First-Token (`TTFT ms`), Total Generation Time (`ms`), STT Latency (`ms`).
+   - **Battery Draw**: Battery level (`%`), temperature (`°C`), charge current (`mA`).
+   - **System Throughput**: Used RAM vs Total RAM (`MB`), Native C++ Heap, Thermal Status.
 
-1. Install dependencies (`yarn.lock` is the source of truth, not `package-lock.json`)
+---
 
-   ```bash
-   yarn install
-   ```
+## 🚀 Building & Running
 
-2. Build and install a development build
+### Requirements
+- Android Studio Ladybug or newer
+- Android SDK 35 (Target API 35, Min API 26)
+- JDK 17+
 
-   Native code changed (or this is your first run), so build and launch the dev client on a simulator/emulator or device:
-
-   ```bash
-   yarn ios       # build + run on iOS simulator/Device
-   yarn android   # build + run on Android emulator/Device
-   ```
-
-   This compiles the native project and installs an [`expo-dev-client`](https://docs.expo.dev/develop/development-builds/introduction/) build with your custom native modules included.
-
-3. For subsequent runs, start the dev server and reload the existing development build (no need to rebuild unless native dependencies or config plugins change):
-
-   ```bash
-   yarn start
-   ```
-
-### Rebuilding
-
-Re-run `yarn ios` / `yarn android` whenever you add/update a native dependency, change `app.json` plugin config, or the generated `ios`/`android` folders are out of date.
+### Terminal Build
+```bash
+./gradlew assembleDebug
+```

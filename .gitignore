@@ -1,43 +1,41 @@
-# Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
+# Built application files
+*.apk
+*.aar
+*.ap_
+*.aab
 
-# dependencies
-node_modules/
+# Files for the ART/DALVIK VM
+*.dex
 
-# Expo
-.expo/
-dist/
-web-build/
-expo-env.d.ts
+# Java class files
+*.class
 
-# Native
+# Generated files
+bin/
+gen/
+out/
+build/
+.gradle/
 .kotlin/
-*.orig.*
-*.jks
-*.p8
-*.p12
-*.key
-*.mobileprovision
 
-# Metro
-.metro-health-check*
-
-# debug
-npm-debug.*
-yarn-debug.*
-yarn-error.*
+# Android Studio / IntelliJ IDEA
+.idea/
+*.iml
+*.iws
+*.ipr
+captures/
+.externalNativeBuild
+.cxx/
+local.properties
 
 # macOS
 .DS_Store
-*.pem
 
-# local env files
-.env*.local
+# Large model binaries
+*.bin
 
-# typescript
-*.tsbuildinfo
+# Python virtual environment & exports
+whisper-export-venv/
+whisper_tiny_en_q4/
+whisper_preprocessor.pte
 
-example
-
-# generated native folders
-/ios
-/android
