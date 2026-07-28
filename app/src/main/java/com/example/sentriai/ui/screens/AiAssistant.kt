@@ -1,5 +1,13 @@
 package com.example.sentriai.ui.screens
 
+import android.Manifest
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.provider.Settings
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.DrawableRes
 import androidx.annotation.StringRes
 import androidx.compose.foundation.Canvas
@@ -28,10 +36,12 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -40,6 +50,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -47,38 +58,118 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.sentriai.R
+import com.example.sentriai.model_inference.speech_to_text.TranscriptionUiState
+import com.example.sentriai.model_inference.speech_to_text.TranscriptionViewModel
 import com.example.sentriai.ui.theme.SentriAITheme
 
-/** Palette for the Guardian AI activation surface — intentionally light-only, as designed. */
-private val PageBackground = Color(0xFFF2F6FD)
-private val TopBarBackground = Color(0xFFFFFFFF)
-private val CardBackground = Color(0xFFFFFFFF)
-private val NavyInk = Color(0xFF111A32)
-private val AccentBlue = Color(0xFF2563EB)
-private val SoftBlueContainer = Color(0xFFE9F0FE)
-private val MutedText = Color(0xFF64748B)
-private val HaloRing = Color(0xFFE4EBF8)
-private val CardBorder = Color(0xFFEDF1F9)
-
-/** Power button states: slate grey while off, green once armed. */
-private val PowerOffGrey = Color(0xFF64748B)
-private val PowerOnGreen = Color(0xFF15803D)
-
 /**
- * Guardian AI activation screen: assistant portrait, a single power toggle and the
- * live monitoring status tiles.
+ * Guardian AI activation screen, wired to on-device speech-to-text.
  *
- * @param isActive whether the assistant is currently armed.
- * @param onPowerClick invoked when the power pill is tapped.
+ * The power pill drives [TranscriptionViewModel]'s live streaming loop: powering on
+ * starts mic capture (after RECORD_AUDIO is granted) and, once the model has finished
+ * loading, hands off to the Voice Transcript screen via [onTranscriptionStarted].
+ * Transcript text itself lives on that screen, not here.
+ *
  * @param onProfileClick invoked when the profile chip in the top bar is tapped.
+ * @param onTranscriptionStarted invoked when the model is loaded and the stream is live.
  */
 @Composable
 fun AiAssistantActivateScreen(
     onProfileClick: () -> Unit,
+    onTranscriptionStarted: () -> Unit,
+    viewModel: TranscriptionViewModel,
     modifier: Modifier = Modifier,
 ) {
-    var isActive by remember { mutableStateOf(true) }
+    val context = LocalContext.current
+    val state by viewModel.state.collectAsStateWithLifecycle()
+
+    var permissionDenied by rememberSaveable { mutableStateOf(false) }
+    // Only a power tap made *here* should push the transcript screen. Without this the
+    // effect below would re-navigate every time this screen is recomposed while the
+    // stream is still live — i.e. immediately after the user backs out of the transcript.
+    var awaitingStart by rememberSaveable { mutableStateOf(false) }
+
+    LaunchedEffect(state, awaitingStart) {
+        if (!awaitingStart) return@LaunchedEffect
+        when (state) {
+            is TranscriptionUiState.Listening -> {
+                awaitingStart = false
+                onTranscriptionStarted()
+            }
+            // Mic or model failure — the handoff is off, the error shows here instead.
+            is TranscriptionUiState.Error -> awaitingStart = false
+            else -> Unit
+        }
+    }
+
+    val micPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        permissionDenied = !granted
+        if (granted) {
+            awaitingStart = true
+            viewModel.startStreaming()
+        }
+    }
+
+    AiAssistantActivateContent(
+        state = state,
+        permissionDenied = permissionDenied,
+        onPowerClick = {
+            when {
+                // Reachable when the user backed out of the transcript screen without
+                // stopping: the assistant is still armed, so the pill turns it off.
+                state is TranscriptionUiState.Listening -> viewModel.stopStreaming()
+                context.hasMicPermission() -> {
+                    permissionDenied = false
+                    awaitingStart = true
+                    viewModel.startStreaming()
+                }
+                // First tap without permission — and every later tap while the user has
+                // only soft-denied. Once they pick "Don't allow" permanently the system
+                // returns the denial immediately, which surfaces the Settings shortcut.
+                else -> micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+            }
+        },
+        onOpenSettingsClick = { context.openAppSettings() },
+        onProfileClick = onProfileClick,
+        modifier = modifier,
+    )
+}
+
+private fun Context.hasMicPermission(): Boolean =
+    ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) ==
+        PackageManager.PERMISSION_GRANTED
+
+private fun Context.openAppSettings() {
+    startActivity(
+        Intent(
+            Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+            Uri.fromParts("package", packageName, null),
+        ),
+    )
+}
+
+/**
+ * Stateless activation surface: assistant portrait, the power toggle and the live
+ * monitoring status tiles.
+ */
+@Composable
+private fun AiAssistantActivateContent(
+    state: TranscriptionUiState,
+    permissionDenied: Boolean,
+    onPowerClick: () -> Unit,
+    onOpenSettingsClick: () -> Unit,
+    onProfileClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val isActive = state is TranscriptionUiState.Listening
+    // Both are transitional: the mic is on but the pill must not accept another tap.
+    val isPreparing = state is TranscriptionUiState.Preparing
+    val isStopping = state is TranscriptionUiState.Finishing
 
     Column(
         modifier = modifier
@@ -127,7 +218,17 @@ fun AiAssistantActivateScreen(
 
             Spacer(Modifier.height(28.dp))
 
-            PowerButton(isActive = isActive, onClick = { isActive = !isActive})
+            PowerButton(
+                isActive = isActive,
+                isPreparing = isPreparing,
+                isStopping = isStopping,
+                onClick = onPowerClick,
+            )
+
+            if (permissionDenied) {
+                Spacer(Modifier.height(12.dp))
+                MicPermissionNotice(onOpenSettingsClick = onOpenSettingsClick)
+            }
 
             Spacer(Modifier.height(16.dp))
 
@@ -159,7 +260,42 @@ fun AiAssistantActivateScreen(
                 )
             }
 
+            // A failed mic start or model load never reaches the transcript screen, so it
+            // is reported here.
+            (state as? TranscriptionUiState.Error)?.let { error ->
+                Spacer(Modifier.height(20.dp))
+                Text(
+                    text = error.message,
+                    color = ErrorRed,
+                    fontSize = 13.sp,
+                    lineHeight = 19.sp,
+                    textAlign = TextAlign.Center,
+                )
+            }
+
             Spacer(Modifier.height(24.dp))
+        }
+    }
+}
+
+/** Shown once the user has denied the mic permission — the only way back is Settings. */
+@Composable
+private fun MicPermissionNotice(onOpenSettingsClick: () -> Unit) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(
+            text = stringResource(R.string.ai_assistant_mic_permission_denied),
+            color = ErrorRed,
+            fontSize = 13.sp,
+            lineHeight = 19.sp,
+            textAlign = TextAlign.Center,
+        )
+        TextButton(onClick = onOpenSettingsClick) {
+            Text(
+                text = stringResource(R.string.ai_assistant_open_settings),
+                color = AccentBlue,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
         }
     }
 }
@@ -258,12 +394,23 @@ private fun AssistantPortrait() {
 /**
  * Full-width power button. Grey while the assistant is off, green once it is on;
  * the label and trailing knob track the same state.
+ *
+ * @param isPreparing the mic is on but the model is still loading — the handoff to the
+ *   transcript screen happens on its own once loading finishes.
+ * @param isStopping the streaming loop is winding down — taps are ignored until it has
+ *   emitted its final transcript, so a new capture can't race the one still finishing.
  */
 @Composable
-private fun PowerButton(isActive: Boolean, onClick: () -> Unit) {
-    val containerColor = if (isActive) PowerOnGreen else PowerOffGrey
+private fun PowerButton(
+    isActive: Boolean,
+    isPreparing: Boolean,
+    isStopping: Boolean,
+    onClick: () -> Unit,
+) {
+    val containerColor = if (isActive || isPreparing) PowerOnGreen else PowerOffGrey
     Button(
         onClick = onClick,
+        enabled = !isStopping && !isPreparing,
         modifier = Modifier
             .fillMaxWidth()
             .height(74.dp),
@@ -271,14 +418,22 @@ private fun PowerButton(isActive: Boolean, onClick: () -> Unit) {
         colors = ButtonDefaults.buttonColors(
             containerColor = containerColor,
             contentColor = Color.White,
+            // Keep the pill reading as the same control while it winds down, rather than
+            // dropping to Material's washed-out disabled surface.
+            disabledContainerColor = containerColor,
+            disabledContentColor = Color.White,
         ),
         elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp),
         contentPadding = PaddingValues(start = 28.dp, end = 11.dp),
     ) {
         Text(
             text = stringResource(
-                if (isActive) R.string.ai_assistant_power_on
-                else R.string.ai_assistant_power_off,
+                when {
+                    isPreparing -> R.string.ai_assistant_power_starting
+                    isStopping -> R.string.ai_assistant_power_stopping
+                    isActive -> R.string.ai_assistant_power_on
+                    else -> R.string.ai_assistant_power_off
+                },
             ),
             fontSize = 17.sp,
             fontWeight = FontWeight.SemiBold,
@@ -355,11 +510,29 @@ private fun StatusTile(
     }
 }
 
-@Preview(showBackground = true, widthDp = 335, heightDp = 690)
+@Preview(name = "Idle", showBackground = true, widthDp = 335,)
 @Composable
 private fun AiAssistantActivateScreenPreview() {
     SentriAITheme(dynamicColor = false) {
-        AiAssistantActivateScreen(
+        AiAssistantActivateContent(
+            state = TranscriptionUiState.Idle,
+            permissionDenied = false,
+            onPowerClick = {},
+            onOpenSettingsClick = {},
+            onProfileClick = {},
+        )
+    }
+}
+
+@Preview(name = "Active", showBackground = true, widthDp = 335,)
+@Composable
+private fun AiAssistantListeningPreview() {
+    SentriAITheme(dynamicColor = false) {
+        AiAssistantActivateContent(
+            state = TranscriptionUiState.Listening(""),
+            permissionDenied = false,
+            onPowerClick = {},
+            onOpenSettingsClick = {},
             onProfileClick = {},
         )
     }
