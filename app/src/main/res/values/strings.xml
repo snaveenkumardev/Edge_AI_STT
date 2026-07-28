@@ -35,4 +35,33 @@
     <string name="voice_transcript_waiting">Waiting for speech…</string>
     <string name="voice_transcript_stop">Stop Transcription</string>
     <string name="voice_transcript_done">Done</string>
+
+    <!-- Trigger Log -->
+    <string name="trigger_log_icon">Alert log</string>
+    <string name="trigger_log_title">Alert History</string>
+    <string name="trigger_log_empty_title">All Clear</string>
+    <string name="trigger_log_empty_body">No emergency alerts have been triggered yet. The system is monitoring and will log any events here.</string>
+    <string name="trigger_log_sms_sent">Alert sent</string>
+    <string name="trigger_log_sms_failed">Alert failed</string>
+    <string name="trigger_log_confidence">Confidence: %1$.0f%%</string>
+    <string name="trigger_log_clear">Clear Log</string>
+    <string name="trigger_log_clear_confirm">Clear all entries? This cannot be undone.</string>
+    <string name="trigger_log_clear_yes">Clear</string>
+    <string name="trigger_log_clear_no">Cancel</string>
+
+    <!-- FunctionGemma Engine Status -->
+    <string name="engine_status_loading">Loading FunctionGemma 270M…</string>
+    <string name="engine_status_ready">FunctionGemma 270M Ready</string>
+    <string name="engine_status_unavailable">Model absent (/data/local/tmp/llm/)</string>
+    <string name="engine_status_error">Engine initialization error</string>
+
+    <!-- Analysis status (VoiceTranscriptScreen) -->
+    <string name="voice_transcript_analyzing">Analyzing transcript…</string>
+    <string name="voice_transcript_no_threat">No threat detected</string>
+    <string name="voice_transcript_emergency_detected">⚠️ Emergency: %1$s</string>
+    <string name="voice_transcript_analysis_label">AI Analysis</string>
+    <string name="voice_transcript_alert_log_label">Alert Log</string>
+
+    <!-- Alert History (full-screen page) -->
+    <string name="alert_history_title">Alert History</string>
 </resources>

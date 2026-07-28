@@ -42,9 +42,18 @@ class TranscriptionViewModel(app: Application) : AndroidViewModel(app) {
     private val recorder = AudioRecorder()
     @Volatile private var model: WhisperModel? = null
     private var streamJob: Job? = null
+    @Volatile private var clearRequested = false
 
     private val _state = MutableStateFlow<TranscriptionUiState>(TranscriptionUiState.Idle)
     val state: StateFlow<TranscriptionUiState> = _state.asStateFlow()
+
+    /**
+     * Signal the streaming loop to clear its committed text buffer and audio window.
+     * The next tick will start with a fresh transcript.
+     */
+    fun clearTranscript() {
+        clearRequested = true
+    }
 
     /** Called once permission is granted. Begins mic capture. */
     fun startRecording() {
@@ -132,6 +141,21 @@ class TranscriptionViewModel(app: Application) : AndroidViewModel(app) {
         try {
             while (coroutineContext.isActive && recorder.isRecording) {
                 delay(STREAM_INTERVAL_MS)
+
+                // Check if UI requested a transcript clear after analysis
+                if (clearRequested) {
+                    clearRequested = false
+                    committed.clear()
+                    window = FloatArray(0)
+                    // Drain any buffered audio so it doesn't replay
+                    recorder.drain()
+                    Log.d(TAG, "tick #$tick: transcript cleared by analysis")
+                    if (recorder.isRecording) {
+                        _state.value = TranscriptionUiState.Listening("")
+                    }
+                    continue
+                }
+
                 val fresh = recorder.drain()
                 window += fresh
                 tick++

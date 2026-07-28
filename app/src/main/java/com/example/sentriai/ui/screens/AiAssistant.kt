@@ -21,24 +21,35 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material3.Badge
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -60,6 +71,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.sentriai.R
 import com.example.sentriai.model_inference.speech_to_text.TranscriptionUiState
 import com.example.sentriai.model_inference.speech_to_text.TranscriptionViewModel
@@ -76,12 +88,15 @@ import com.example.sentriai.ui.theme.SentriAITheme
  * @param onProfileClick invoked when the profile chip in the top bar is tapped.
  * @param onTranscriptionStarted invoked when the model is loaded and the stream is live.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AiAssistantActivateScreen(
     onProfileClick: () -> Unit,
     onTranscriptionStarted: () -> Unit,
+    onAlertHistoryClick: () -> Unit,
     viewModel: TranscriptionViewModel,
     modifier: Modifier = Modifier,
+    triggerLogViewModel: TriggerLogViewModel = viewModel(),
 ) {
     val context = LocalContext.current
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -91,6 +106,13 @@ fun AiAssistantActivateScreen(
     // effect below would re-navigate every time this screen is recomposed while the
     // stream is still live — i.e. immediately after the user backs out of the transcript.
     var awaitingStart by rememberSaveable { mutableStateOf(false) }
+
+    val logEntries by triggerLogViewModel.logEntries.collectAsState()
+    val entryCount by triggerLogViewModel.entryCount.collectAsState()
+    val engineState by triggerLogViewModel.engineState.collectAsState()
+    val engineErrorMessage by triggerLogViewModel.engineErrorMessage.collectAsState()
+
+
 
     LaunchedEffect(state, awaitingStart) {
         if (!awaitingStart) return@LaunchedEffect
@@ -136,6 +158,13 @@ fun AiAssistantActivateScreen(
         },
         onOpenSettingsClick = { context.openAppSettings() },
         onProfileClick = onProfileClick,
+        logBadgeCount = entryCount,
+        onLogClick = {
+            triggerLogViewModel.refresh()
+            onAlertHistoryClick()
+        },
+        engineState = engineState,
+        engineErrorMessage = engineErrorMessage,
         modifier = modifier,
     )
 }
@@ -164,6 +193,10 @@ private fun AiAssistantActivateContent(
     onPowerClick: () -> Unit,
     onOpenSettingsClick: () -> Unit,
     onProfileClick: () -> Unit,
+    logBadgeCount: Int,
+    onLogClick: () -> Unit,
+    engineState: EngineState,
+    engineErrorMessage: String?,
     modifier: Modifier = Modifier,
 ) {
     val isActive = state is TranscriptionUiState.Listening
@@ -174,9 +207,14 @@ private fun AiAssistantActivateContent(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(PageBackground),
+            .background(PageBackground)
+            .windowInsetsPadding(WindowInsets.systemBars),
     ) {
-        GuardianTopBar(onProfileClick = onProfileClick)
+        GuardianTopBar(
+            onProfileClick = onProfileClick,
+            logBadgeCount = logBadgeCount,
+            onLogClick = onLogClick,
+        )
 
         Column(
             modifier = Modifier
@@ -240,7 +278,11 @@ private fun AiAssistantActivateContent(
                 letterSpacing = 1.4.sp,
             )
 
-            Spacer(Modifier.height(20.dp))
+            Spacer(Modifier.height(6.dp))
+
+            EngineStatusBadge(engineState = engineState, errorMessage = engineErrorMessage)
+
+            Spacer(Modifier.height(16.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -301,7 +343,11 @@ private fun MicPermissionNotice(onOpenSettingsClick: () -> Unit) {
 }
 
 @Composable
-private fun GuardianTopBar(onProfileClick: () -> Unit) {
+private fun GuardianTopBar(
+    onProfileClick: () -> Unit,
+    logBadgeCount: Int = 0,
+    onLogClick: () -> Unit = {},
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -323,6 +369,42 @@ private fun GuardianTopBar(onProfileClick: () -> Unit) {
             fontWeight = FontWeight.Bold,
         )
         Spacer(Modifier.weight(1f))
+
+        // ── Trigger-log badge icon ──────────────────────────────────
+        Box(
+            modifier = Modifier
+                .size(38.dp)
+                .clip(CircleShape)
+                .background(SoftBlueContainer)
+                .clickable(onClick = onLogClick),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                painter = painterResource(R.drawable.ic_trigger_log),
+                contentDescription = stringResource(R.string.trigger_log_icon),
+                tint = NavyInk,
+                modifier = Modifier.size(20.dp),
+            )
+            if (logBadgeCount > 0) {
+                Badge(
+                    containerColor = Color(0xFFC62828),
+                    contentColor = Color.White,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .offset(x = 2.dp, y = (-2).dp),
+                ) {
+                    Text(
+                        text = logBadgeCount.toString(),
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+            }
+        }
+
+        Spacer(Modifier.width(10.dp))
+
+        // ── Profile avatar ──────────────────────────────────────────
         Box(
             modifier = Modifier
                 .size(38.dp)
@@ -510,7 +592,55 @@ private fun StatusTile(
     }
 }
 
-@Preview(name = "Idle", showBackground = true, widthDp = 335,)
+@Composable
+private fun EngineStatusBadge(engineState: EngineState, errorMessage: String? = null) {
+    val (statusText, statusColor, statusBg) = when (engineState) {
+        EngineState.LOADING -> Triple(
+            stringResource(R.string.engine_status_loading),
+            AccentBlue,
+            SoftBlueContainer
+        )
+        EngineState.READY -> Triple(
+            stringResource(R.string.engine_status_ready),
+            PowerOnGreen,
+            Color(0xFFDCFCE7)
+        )
+        EngineState.UNAVAILABLE -> Triple(
+            errorMessage ?: stringResource(R.string.engine_status_unavailable),
+            Color(0xFFD97706), // Amber
+            Color(0xFFFEF3C7)
+        )
+        EngineState.ERROR -> Triple(
+            errorMessage ?: stringResource(R.string.engine_status_error),
+            Color(0xFFC62828),
+            Color(0xFFFEE2E2)
+        )
+    }
+
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(statusBg)
+            .padding(horizontal = 10.dp, vertical = 4.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(7.dp)
+                .clip(CircleShape)
+                .background(statusColor)
+        )
+        Spacer(Modifier.width(6.dp))
+        Text(
+            text = statusText,
+            color = statusColor,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold
+        )
+    }
+}
+
+@Preview(showBackground = true, widthDp = 335, heightDp = 690)
 @Composable
 private fun AiAssistantActivateScreenPreview() {
     SentriAITheme(dynamicColor = false) {
@@ -520,6 +650,10 @@ private fun AiAssistantActivateScreenPreview() {
             onPowerClick = {},
             onOpenSettingsClick = {},
             onProfileClick = {},
+            logBadgeCount = 0,
+            onLogClick = {},
+            engineState = EngineState.READY,
+            engineErrorMessage = null,
         )
     }
 }
@@ -534,6 +668,10 @@ private fun AiAssistantListeningPreview() {
             onPowerClick = {},
             onOpenSettingsClick = {},
             onProfileClick = {},
+            logBadgeCount = 2,
+            onLogClick = {},
+            engineState = EngineState.READY,
+            engineErrorMessage = null,
         )
     }
 }

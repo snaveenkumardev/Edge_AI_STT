@@ -28,7 +28,7 @@ android {
         // Model artifacts are copied out of assets to filesDir before ExecuTorch can open them
         // (it takes filesystem paths, not asset paths). Keeping them uncompressed avoids the
         // aapt compressed-asset size limit and makes that first-run copy a straight byte copy.
-        noCompress += listOf("pte", "ptd", "bin")
+        noCompress += listOf("pte", "ptd", "bin", "task")
     }
 
     buildTypes {
@@ -66,6 +66,7 @@ dependencies {
     // viewModel() + collectAsStateWithLifecycle() for the transcription screen.
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
+    implementation("com.google.mediapipe:tasks-genai:0.10.35")
     debugImplementation(libs.androidx.compose.ui.tooling)
 
     // On-device inference. Pulls fbjni, soloader-nativeloader and its own R8 keep rules

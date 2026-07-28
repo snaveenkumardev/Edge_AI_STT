@@ -12,7 +12,9 @@ import androidx.navigation.compose.rememberNavController
 import com.example.sentriai.data.ProfileStore
 import com.example.sentriai.model_inference.speech_to_text.TranscriptionViewModel
 import com.example.sentriai.ui.screens.AiAssistantActivateScreen
+import com.example.sentriai.ui.screens.AlertHistoryScreen
 import com.example.sentriai.ui.screens.ProfileSettingsScreen
+import com.example.sentriai.ui.screens.TriggerLogViewModel
 import com.example.sentriai.ui.screens.VoiceTranscriptScreen
 
 /** Destinations reachable from the nav host. */
@@ -20,6 +22,7 @@ object Routes {
     const val PROFILE = "profile"
     const val AI_ASSISTANT = "ai_assistant"
     const val VOICE_TRANSCRIPT = "voice_transcript"
+    const val ALERT_HISTORY = "alert_history"
 }
 
 /**
@@ -38,6 +41,9 @@ fun SentriAiNavHost(
     // back stack entry: the activation and transcript screens drive the same stream, and
     // the loaded Whisper model (~200 MB) survives navigating between them.
     val transcriptionViewModel: TranscriptionViewModel = viewModel()
+    // Hoisted so the home badge, transcript screen inline log, and alert history page
+    // all share the same log state.
+    val triggerLogViewModel: TriggerLogViewModel = viewModel()
     // Resolved once per host: NavHost only reads startDestination when it builds the
     // graph, and re-reading prefs on recomposition would have no effect anyway.
     val startDestination = remember {
@@ -67,7 +73,11 @@ fun SentriAiNavHost(
                 onTranscriptionStarted = {
                     navController.navigate(Routes.VOICE_TRANSCRIPT) { launchSingleTop = true }
                 },
+                onAlertHistoryClick = {
+                    navController.navigate(Routes.ALERT_HISTORY) { launchSingleTop = true }
+                },
                 viewModel = transcriptionViewModel,
+                triggerLogViewModel = triggerLogViewModel,
             )
         }
 
@@ -77,6 +87,14 @@ fun SentriAiNavHost(
                 // activation screen keeps showing it as active.
                 onBack = { navController.popBackStack() },
                 viewModel = transcriptionViewModel,
+                triggerLogViewModel = triggerLogViewModel,
+            )
+        }
+
+        composable(Routes.ALERT_HISTORY) {
+            AlertHistoryScreen(
+                onBack = { navController.popBackStack() },
+                triggerLogViewModel = triggerLogViewModel,
             )
         }
     }
