@@ -15,6 +15,20 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        ndk {
+            // The ExecuTorch AAR only ships libexecutorch.so for these two ABIs. Without the
+            // filter the APK still gains armeabi-v7a/x86 folders from other dependencies, and
+            // System.loadLibrary("executorch") then fails at runtime on those devices.
+            abiFilters += listOf("arm64-v8a", "x86_64")
+        }
+    }
+
+    androidResources {
+        // Model artifacts are copied out of assets to filesDir before ExecuTorch can open them
+        // (it takes filesystem paths, not asset paths). Keeping them uncompressed avoids the
+        // aapt compressed-asset size limit and makes that first-run copy a straight byte copy.
+        noCompress += listOf("pte", "ptd", "bin")
     }
 
     buildTypes {
@@ -49,7 +63,14 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended")
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.navigation.compose)
+    // viewModel() + collectAsStateWithLifecycle() for the transcription screen.
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
+    implementation(libs.androidx.lifecycle.runtime.compose)
     debugImplementation(libs.androidx.compose.ui.tooling)
+
+    // On-device inference. Pulls fbjni, soloader-nativeloader and its own R8 keep rules
+    // transitively — nothing else to declare here.
+    implementation(libs.pytorch.executorch.android)
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.espresso.core)
