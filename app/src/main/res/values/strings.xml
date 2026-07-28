@@ -17,4 +17,22 @@
     <string name="ai_assistant_location_value">Tracking On</string>
     <string name="ai_assistant_vitals_label">Vitals</string>
     <string name="ai_assistant_vitals_value">Synced</string>
+
+    <!-- Speech-to-text: power button transitions and mic permission. -->
+    <string name="ai_assistant_power_starting">Starting…</string>
+    <string name="ai_assistant_power_stopping">Finishing…</string>
+    <string name="ai_assistant_mic_permission_denied">Microphone access is required for the assistant to listen.</string>
+    <string name="ai_assistant_open_settings">Open Settings</string>
+
+    <!-- Voice transcript screen. -->
+    <string name="voice_transcript_title">Voice Transcript</string>
+    <string name="voice_transcript_back">Back</string>
+    <string name="voice_transcript_label">Transcript</string>
+    <string name="voice_transcript_status_preparing">Preparing model…</string>
+    <string name="voice_transcript_status_listening">Listening…</string>
+    <string name="voice_transcript_status_finishing">Finishing up…</string>
+    <string name="voice_transcript_status_stopped">Transcription stopped</string>
+    <string name="voice_transcript_waiting">Waiting for speech…</string>
+    <string name="voice_transcript_stop">Stop Transcription</string>
+    <string name="voice_transcript_done">Done</string>
 </resources>
