@@ -89,8 +89,8 @@ class TriggerLogViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
-    override fun onCleared() {
-        super.onCleared()
-        FunctionGemmaEngine.close()
-    }
+    // Deliberately no onCleared teardown: FunctionGemmaEngine is a process-global object
+    // that ListeningService also uses, and listening outlives this ViewModel. Closing it
+    // here used to pull the engine out from under a background session, leaving the
+    // emergency check silently dead while the mic was still running.
 }

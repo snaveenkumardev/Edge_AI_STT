@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -127,14 +128,28 @@ fun AiAssistantActivateScreen(
         }
     }
 
-    val micPermissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission(),
-    ) { granted ->
-        permissionDenied = !granted
-        if (granted) {
+    // RECORD_AUDIO plus, on API 33+, POST_NOTIFICATIONS: listening runs in a foreground
+    // service whose ongoing notification is how the user sees and stops it. Both are asked
+    // for together so there is only one prompt sequence, but only the mic result gates the
+    // start — a denied notification permission hides the status entry without stopping the
+    // service from running legally.
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) { results ->
+        val micGranted = results[Manifest.permission.RECORD_AUDIO] == true
+        permissionDenied = !micGranted
+        if (micGranted) {
             awaitingStart = true
             viewModel.startStreaming()
         }
+    }
+    val startPermissions = remember {
+        buildList {
+            add(Manifest.permission.RECORD_AUDIO)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                add(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }.toTypedArray()
     }
 
     AiAssistantActivateContent(
@@ -153,7 +168,7 @@ fun AiAssistantActivateScreen(
                 // First tap without permission — and every later tap while the user has
                 // only soft-denied. Once they pick "Don't allow" permanently the system
                 // returns the denial immediately, which surfaces the Settings shortcut.
-                else -> micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                else -> permissionLauncher.launch(startPermissions)
             }
         },
         onOpenSettingsClick = { context.openAppSettings() },

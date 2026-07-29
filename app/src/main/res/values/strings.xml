@@ -72,4 +72,17 @@
     <string name="sms_permission_card_reason_1">Immediate safety response</string>
     <string name="sms_permission_card_reason_2">Notify handlers with your location &amp; status</string>
     <string name="sms_permission_grant_button">Grant SMS Permission</string>
+    <!-- Background listening service -->
+    <string name="listening_channel_name">Guardian listening</string>
+    <string name="listening_channel_description">Shown while Sentri AI is listening for emergencies in the background.</string>
+    <string name="listening_notification_title">Sentri AI is listening</string>
+    <string name="listening_notification_starting">Starting up…</string>
+    <string name="listening_notification_listening">Listening for emergencies…</string>
+    <string name="listening_notification_stop">Stop</string>
+    <string name="listening_no_speech">(no speech detected)</string>
+    <string name="listening_error_no_mic_permission">Microphone permission is required to listen.</string>
+    <string name="listening_error_foreground_denied">Listening could not start in the background. Reopen Sentri AI and try again.</string>
+    <string name="listening_error_mic">Mic error: %1$s</string>
+    <string name="listening_error_model">Model load failed</string>
+    <string name="listening_notification_permission_denied">Without notification access the listening status bar entry is hidden, but listening still works.</string>
 </resources>
