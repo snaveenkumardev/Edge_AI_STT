@@ -5,6 +5,19 @@
     <uses-permission android:name="android.permission.SEND_SMS" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
+    <!--
+      Listening continues while the app is backgrounded or the screen is off. Without a
+      microphone-type foreground service Android returns silence (not an error) to a
+      background AudioRecord, so the whole pipeline would run against zeros.
+      FOREGROUND_SERVICE_MICROPHONE is only enforced from API 34 but is harmless earlier.
+    -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <!-- The ongoing notification is required for the FGS; on 33+ it needs runtime consent. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- A foreground service does not keep the CPU awake on its own once the screen is off. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
     <application
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
@@ -23,6 +36,15 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!--
+          Must be started while the app is visible: from API 34 a microphone-type FGS
+          cannot be started from the background, so the start is always a user tap.
+        -->
+        <service
+            android:name=".service.ListeningService"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
 
     </application>
 
