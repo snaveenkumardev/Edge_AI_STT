@@ -1,6 +1,5 @@
 package com.example.sentriai.ui.screens
 
-import android.util.Log
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -36,14 +35,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
@@ -52,24 +47,12 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.sentriai.R
 import com.example.sentriai.data.TriggerLogEntry
-import com.example.sentriai.engine.EmergencyPipeline
+import com.example.sentriai.model_inference.speech_to_text.AnalysisState
+import com.example.sentriai.model_inference.speech_to_text.ChatMessage
 import com.example.sentriai.model_inference.speech_to_text.TranscriptionUiState
 import com.example.sentriai.model_inference.speech_to_text.TranscriptionViewModel
 import com.example.sentriai.ui.theme.SentriAITheme
 import androidx.compose.ui.text.style.TextAlign
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.withContext
-import com.example.sentriai.model_inference.speech_to_text.ChatMessage
-
-// ── Analysis status model ───────────────────────────────────────────────────
-
-private sealed interface AnalysisStatus {
-    data object Idle : AnalysisStatus
-    data object Analyzing : AnalysisStatus
-    data class Safe(val message: String) : AnalysisStatus
-    data class Emergency(val type: String) : AnalysisStatus
-}
 
 private val AnalyzingBlue = Color(0xFF2563EB)
 private val SafeGreen = Color(0xFF15803D)
@@ -79,13 +62,11 @@ private val EmergencyAmber = Color(0xFFD97706)
  * Live transcript surface, reached from the activation screen once the mic is capturing
  * and the Whisper model has finished loading.
  *
- * Text grows every couple of seconds as the streaming loop re-transcribes its window.
- * Stopping here winds the loop down and leaves the final transcript on screen; the back
- * button returns to the activation screen and deliberately leaves the stream running,
- * so the assistant stays armed until it is powered off.
- *
- * @param viewModel must be the same instance the activation screen started — the stream
- *   lives in it, so a per-destination instance would show an empty transcript.
+ * Purely a view: transcription and the emergency analysis both run in `ListeningService`
+ * and are observed here. That is deliberate — this screen used to run the FunctionGemma
+ * check, send the SMS and write the trigger log from a `LaunchedEffect`, which meant
+ * nothing was detected once the UI went away. Stopping here winds the service down; the
+ * back button leaves it running so the assistant stays armed until it is powered off.
  */
 @Composable
 fun VoiceTranscriptScreen(
@@ -96,142 +77,19 @@ fun VoiceTranscriptScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val chatMessages by viewModel.chatMessages.collectAsStateWithLifecycle()
-    val context = LocalContext.current
+    val analysis by viewModel.analysis.collectAsStateWithLifecycle()
     val logEntries by triggerLogViewModel.logEntries.collectAsState()
 
-    // Finishing carries no text of its own, so the last transcript we saw is held here to
-    // keep it on screen while the loop transcribes its tail audio.
-    var transcript by rememberSaveable { mutableStateOf("") }
-    var lastTriggeredCharIndex by rememberSaveable { mutableStateOf(-1) }
-    var analysisInProgress by rememberSaveable { mutableStateOf(false) }
-    var analysisStatus by rememberSaveable { mutableStateOf<String>("idle") }
-
-    var previousTranscriptText by rememberSaveable { mutableStateOf("") }
-
-    LaunchedEffect(state) {
-        // Update local transcript display
-        when (val current = state) {
-            is TranscriptionUiState.Listening -> {
-                transcript = current.text
-                if (transcript.isNotBlank()) {
-                    viewModel.updateActiveMessage(transcript)
-                }
-            }
-            is TranscriptionUiState.Result -> {
-                transcript = current.text
-                if (transcript.isNotBlank()) {
-                    viewModel.updateActiveMessage(transcript)
-                }
-            }
-            is TranscriptionUiState.Preparing -> {
-                lastTriggeredCharIndex = -1
-                analysisInProgress = false
-                analysisStatus = "idle"
-                previousTranscriptText = ""
-            }
-            else -> Unit
-        }
-
-        // Run emergency safety threat analysis on every new transcript update
-        if (transcript.isNotBlank() && !analysisInProgress) {
-            analysisInProgress = true
-            analysisStatus = "analyzing"
-            try {
-                var isEmergency = false
-                var newTriggerDetected = false
-
-                withContext(Dispatchers.Default) {
-                    val toolResult = com.example.sentriai.engine.FunctionGemmaEngine.analyzeTranscript(transcript)
-                    if (toolResult != null) {
-                        isEmergency = true
-                        val triggerPhrase = toolResult.triggerPhrase
-                        val matchIndex = transcript.lowercase().lastIndexOf(triggerPhrase.lowercase())
-                        if (matchIndex != -1) {
-                            val matchEndChar = matchIndex + triggerPhrase.length
-                            if (matchEndChar > lastTriggeredCharIndex) {
-                                // New safety threat detected! Trigger the alert and send SMS
-                                newTriggerDetected = true
-                                lastTriggeredCharIndex = matchEndChar
-
-                                // Attempt to send SMS
-                                val smsResult = com.example.sentriai.sms.EmergencySmsSender.sendEmergencyAlert(
-                                    context = context,
-                                    emergencyType = toolResult.emergencyType,
-                                    triggerPhrase = toolResult.triggerPhrase,
-                                    confidence = toolResult.confidence
-                                )
-
-                                // Log event to disk
-                                com.example.sentriai.data.TriggerLogStore.logEvent(
-                                    context = context,
-                                    triggerPhrase = toolResult.triggerPhrase,
-                                    emergencyType = toolResult.emergencyType,
-                                    fullTranscript = transcript,
-                                    confidenceScore = toolResult.confidence,
-                                    smsSuccess = smsResult.success,
-                                    handlerNumber = smsResult.handlerNumber,
-                                    failureReason = smsResult.failureReason
-                                )
-                            }
-                        }
-                    }
-                }
-
-                if (newTriggerDetected) {
-                    analysisStatus = "emergency"
-                    viewModel.finalizeActiveMessage(toolInvoked = true)
-                    // Clear the box immediately upon triggering an emergency alert!
-                    viewModel.clearTranscript()
-                    transcript = ""
-                    previousTranscriptText = ""
-                    lastTriggeredCharIndex = -1
-                } else {
-                    analysisStatus = "safe"
-                    if (state is TranscriptionUiState.Result) {
-                        viewModel.finalizeActiveMessage(toolInvoked = false)
-                    }
-                }
-
-                // Refresh log entries so any new alert appears inline immediately
-                triggerLogViewModel.refresh()
-            } catch (e: Exception) {
-                Log.e("VoiceTranscript", "Error running EmergencyPipeline: ${e.message}", e)
-                analysisStatus = "safe"
-                if (state is TranscriptionUiState.Result) {
-                    viewModel.finalizeActiveMessage(toolInvoked = false)
-                }
-            } finally {
-                analysisInProgress = false
-            }
-        } else if (transcript.isBlank() && state is TranscriptionUiState.Result) {
-            viewModel.finalizeActiveMessage(toolInvoked = false)
-        }
-    }
-
-    LaunchedEffect(transcript) {
-        if (transcript.isNotBlank()) {
-            delay(3000L)
-            viewModel.finalizeActiveMessage(toolInvoked = false)
-            viewModel.clearTranscript()
-            transcript = ""
-            previousTranscriptText = ""
-            lastTriggeredCharIndex = -1
-            analysisStatus = "safe"
-        }
-    }
-
-    // Map serializable status string to sealed class for rendering
-    val currentAnalysisStatus: AnalysisStatus = when (analysisStatus) {
-        "analyzing" -> AnalysisStatus.Analyzing
-        "safe" -> AnalysisStatus.Safe(stringResource(R.string.voice_transcript_no_threat))
-        "emergency" -> AnalysisStatus.Emergency("Detected")
-        else -> AnalysisStatus.Idle
+    // The service writes alerts straight to disk, so the inline log is re-read whenever one
+    // fires rather than being pushed from here.
+    LaunchedEffect(analysis) {
+        if (analysis is AnalysisState.Emergency) triggerLogViewModel.refresh()
     }
 
     VoiceTranscriptContent(
         state = state,
         chatMessages = chatMessages,
-        analysisStatus = currentAnalysisStatus,
+        analysis = analysis,
         logEntries = logEntries,
         onStopClick = viewModel::stopStreaming,
         onBack = onBack,
@@ -243,7 +101,7 @@ fun VoiceTranscriptScreen(
 private fun VoiceTranscriptContent(
     state: TranscriptionUiState,
     chatMessages: List<ChatMessage>,
-    analysisStatus: AnalysisStatus = AnalysisStatus.Idle,
+    analysis: AnalysisState = AnalysisState.Idle,
     logEntries: List<TriggerLogEntry> = emptyList(),
     onStopClick: () -> Unit,
     onBack: () -> Unit,
@@ -284,7 +142,7 @@ private fun VoiceTranscriptContent(
             Spacer(Modifier.height(12.dp))
 
             // ── Analysis Status Chip ────────────────────────────────────
-            AnalysisStatusChip(status = analysisStatus)
+            AnalysisStatusChip(status = analysis)
 
             // ── Inline Alert Log ────────────────────────────────────────
             if (logEntries.isNotEmpty()) {
@@ -310,13 +168,13 @@ private fun VoiceTranscriptContent(
 // ── Analysis Status Chip ────────────────────────────────────────────────────
 
 @Composable
-private fun AnalysisStatusChip(status: AnalysisStatus) {
-    if (status is AnalysisStatus.Idle) return
+private fun AnalysisStatusChip(status: AnalysisState) {
+    if (status is AnalysisState.Idle) return
 
     val (label, dotColor) = when (status) {
-        is AnalysisStatus.Analyzing -> stringResource(R.string.voice_transcript_analyzing) to AnalyzingBlue
-        is AnalysisStatus.Safe -> status.message to SafeGreen
-        is AnalysisStatus.Emergency -> stringResource(R.string.voice_transcript_emergency_detected, status.type) to EmergencyAmber
+        is AnalysisState.Analyzing -> stringResource(R.string.voice_transcript_analyzing) to AnalyzingBlue
+        is AnalysisState.Safe -> stringResource(R.string.voice_transcript_no_threat) to SafeGreen
+        is AnalysisState.Emergency -> stringResource(R.string.voice_transcript_emergency_detected, status.type) to EmergencyAmber
         else -> return
     }
 
@@ -326,9 +184,9 @@ private fun AnalysisStatusChip(status: AnalysisStatus) {
             .clip(RoundedCornerShape(12.dp))
             .background(
                 when (status) {
-                    is AnalysisStatus.Analyzing -> SoftBlueContainer
-                    is AnalysisStatus.Safe -> Color(0xFFDCFCE7)
-                    is AnalysisStatus.Emergency -> Color(0xFFFEF3C7)
+                    is AnalysisState.Analyzing -> SoftBlueContainer
+                    is AnalysisState.Safe -> Color(0xFFDCFCE7)
+                    is AnalysisState.Emergency -> Color(0xFFFEF3C7)
                     else -> CardBackground
                 },
             )
@@ -628,7 +486,7 @@ private fun VoiceTranscriptListeningPreview() {
             chatMessages = listOf(
                 ChatMessage(text = "Hello, I am walking home from the station now.", isFinalized = false)
             ),
-            analysisStatus = AnalysisStatus.Analyzing,
+            analysis = AnalysisState.Analyzing,
             onStopClick = {},
             onBack = {},
         )
@@ -644,7 +502,7 @@ private fun VoiceTranscriptStoppedPreview() {
             chatMessages = listOf(
                 ChatMessage(text = "Hello, I am walking home from the station now.", isFinalized = true, toolInvoked = false)
             ),
-            analysisStatus = AnalysisStatus.Safe("No threat detected"),
+            analysis = AnalysisState.Safe,
             onStopClick = {},
             onBack = {},
         )
