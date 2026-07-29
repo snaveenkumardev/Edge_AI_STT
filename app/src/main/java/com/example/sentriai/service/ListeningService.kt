@@ -21,6 +21,7 @@ import com.example.sentriai.model_inference.speech_to_text.AudioRecorder
 import com.example.sentriai.model_inference.speech_to_text.TranscriptionUiState
 import com.example.sentriai.model_inference.speech_to_text.WhisperModel
 import com.example.sentriai.model_inference.speech_to_text.cleanTranscriptText
+import com.example.sentriai.model_inference.speech_to_text.voice_activity_detection.AudioSegmenter
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -52,10 +53,16 @@ class ListeningService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val recorder = AudioRecorder()
 
+    /** Splits the stream into utterances so silence never reaches the model. */
+    private val segmenter = AudioSegmenter()
+
     @Volatile private var model: WhisperModel? = null
     private var streamJob: Job? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var lastNotificationText: String? = null
+
+    /** Transcribe calls this session — the number VAD exists to keep near the speech count. */
+    private var transcribeCount = 0
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -113,6 +120,10 @@ class ListeningService : Service() {
         }
 
         acquireWakeLock()
+        // A fresh session starts with no background estimate — the previous one may have been
+        // in a completely different acoustic environment.
+        segmenter.reset()
+        transcribeCount = 0
         ListeningStateHolder.clearChatHistory()
         ListeningStateHolder.setAnalysis(AnalysisState.Idle)
         // Capture is live but the model isn't; the loop flips this to Listening once
@@ -135,10 +146,15 @@ class ListeningService : Service() {
 
     // --- the listening loop ----------------------------------------------------
     //
-    // Whisper is not a token-streaming model — it transcribes fixed 30 s windows. To fake
-    // a live feed the audio accumulated so far is re-transcribed every STREAM_INTERVAL_MS;
-    // the window is closed off as its own chat bubble before it reaches Whisper's 30 s
-    // ceiling, and a fresh one begins.
+    // Speech-driven, not clock-driven: [AudioSegmenter] watches the stream and hands back
+    // complete utterances, each of which is transcribed exactly once. Silence never reaches
+    // the model at all.
+    //
+    // This matters more than it looks. WhisperModel pads every input to a fixed 30 s window,
+    // so a transcribe() call costs a full encoder pass regardless of how much audio is in it.
+    // The previous fixed-cadence design re-transcribed a growing window every 5 s — ~12
+    // encoder passes a minute, whether or not anyone had spoken — and cut at an arbitrary
+    // 20 s boundary, so a phrase spanning it never reached the emergency check intact.
 
     private suspend fun streamLoop() {
         val whisper = runCatching {
@@ -164,62 +180,68 @@ class ListeningService : Service() {
             updateNotification(getString(R.string.listening_notification_listening))
         }
 
-        var window = FloatArray(0)
         var lastText = ""
-        var tick = 0
 
         try {
             while (coroutineContext.isActive && recorder.isRecording) {
-                delay(STREAM_INTERVAL_MS)
+                // Short poll purely to keep the detector fed with low latency. Transcription
+                // happens off this cadence, and audio captured while a transcribe is running
+                // stays buffered in the recorder, so nothing is lost when a pass runs long.
+                delay(DRAIN_INTERVAL_MS)
 
-                window += recorder.drain()
-                tick++
-                if (window.isEmpty()) continue
+                val segments = segmenter.offer(recorder.drain())
+                if (segments.isEmpty()) continue
 
-                val text = cleanTranscriptText(
-                    runCatching { whisper.transcribe(window) }
-                        .onFailure { Log.e(TAG, "partial transcribe failed", it) }
-                        .getOrDefault(""),
-                )
-                Log.d(
-                    TAG,
-                    "tick #$tick: window=${"%.1f".format(window.size / SAMPLE_RATE_F)}s " +
-                        "peak=${"%.3f".format(peak(window))} text='$text'",
-                )
-
-                // A stop can land mid-tick (both the delay and the transcribe take time);
-                // publishing Listening then would overwrite Finishing and make the UI look
-                // live again while the loop is already winding down.
-                if (!recorder.isRecording) break
-
-                if (text.isNotBlank()) {
-                    lastText = text
-                    ListeningStateHolder.setState(TranscriptionUiState.Listening(text))
-                    ListeningStateHolder.updateActiveMessage(text)
-                    // Note the notification is deliberately *not* updated with the
-                    // transcript: it would put the user's speech in the notification shade
-                    // for anyone holding the phone to read.
-
-                    if (analyze(text)) {
-                        // Emergency fired. Close the bubble and drop the audio so the same
-                        // phrase cannot trigger a second alert on the next tick.
-                        window = FloatArray(0)
-                        lastText = ""
-                        continue
-                    }
-                }
-
-                // Close the window off before it reaches Whisper's 30 s ceiling.
-                if (window.size >= MAX_WINDOW_SAMPLES) {
-                    Log.d(TAG, "tick #$tick: window rollover")
-                    ListeningStateHolder.finalizeActiveMessage(toolInvoked = false)
-                    window = FloatArray(0)
-                    lastText = ""
+                // Every segment gets transcribed even if a stop has already landed. Skipping
+                // them would discard captured speech, and in this app the phrase dropped
+                // could be the distress phrase.
+                for (segment in segments) {
+                    transcribeSegment(whisper, segment)?.let { lastText = it }
                 }
             }
         } finally {
-            finishUp(window, lastText)
+            finishUp(whisper, lastText)
         }
+    }
+
+    /**
+     * Transcribe one complete utterance and publish it as a single finalized chat bubble.
+     *
+     * @return the text, or null if the model heard nothing in it — which happens on noise that
+     *   cleared the energy gate but wasn't speech.
+     */
+    private suspend fun transcribeSegment(
+        whisper: WhisperModel,
+        segment: AudioSegmenter.Segment,
+    ): String? {
+        val text = cleanTranscriptText(
+            runCatching { whisper.transcribe(segment.samples) }
+                .onFailure { Log.e(TAG, "segment transcribe failed", it) }
+                .getOrDefault(""),
+        )
+        transcribeCount++
+        Log.d(
+            TAG,
+            "segment #$transcribeCount: ${"%.2f".format(segment.durationSeconds)}s " +
+                "reason=${segment.reason} peak=${"%.3f".format(peak(segment.samples))} text='$text'",
+        )
+        if (text.isBlank()) return null
+
+        // Only claim to still be live if we are. A transcribe started before a stop request
+        // finishes after it, and publishing Listening then would overwrite Finishing and make
+        // the UI look live again while the loop is already winding down.
+        if (recorder.isRecording) {
+            ListeningStateHolder.setState(TranscriptionUiState.Listening(text))
+        }
+        ListeningStateHolder.updateActiveMessage(text)
+        // The notification is deliberately not updated with the transcript: it would put the
+        // user's speech in the notification shade for anyone holding the phone to read.
+
+        // Each segment is a whole utterance, so the bubble closes as soon as it is judged —
+        // no separate rollover or timer is needed to finalize it.
+        val triggered = analyze(text)
+        ListeningStateHolder.finalizeActiveMessage(toolInvoked = triggered)
+        return text
     }
 
     /**
@@ -234,7 +256,6 @@ class ListeningService : Service() {
             .onFailure { Log.e(TAG, "emergency pipeline failed", it) }
             .getOrDefault(false)
         if (triggered) {
-            ListeningStateHolder.finalizeActiveMessage(toolInvoked = true)
             ListeningStateHolder.setAnalysis(AnalysisState.Emergency(EMERGENCY_LABEL))
         } else {
             ListeningStateHolder.setAnalysis(AnalysisState.Safe)
@@ -242,26 +263,24 @@ class ListeningService : Service() {
         return triggered
     }
 
-    /** Transcribe whatever audio never made it into a tick, then publish the final text. */
-    private suspend fun finishUp(pending: FloatArray, lastText: String) {
-        val whisper = model
-        var window = pending
+    /**
+     * Drain the last of the audio and emit the utterance still in flight, so a session stopped
+     * mid-sentence doesn't lose its final phrase.
+     */
+    private suspend fun finishUp(whisper: WhisperModel, lastText: String) {
         // recorder.stop() joins the capture thread and releases AudioRecord; it also hands
         // back the tail audio captured since the last drain.
-        window += runCatching { recorder.stop() }.getOrDefault(FloatArray(0))
+        val tailAudio = runCatching { recorder.stop() }.getOrDefault(FloatArray(0))
 
         var finalText = lastText
-        if (whisper != null && window.isNotEmpty()) {
-            val tail = cleanTranscriptText(
-                runCatching { whisper.transcribe(window) }
-                    .onFailure { Log.e(TAG, "final transcribe failed", it) }
-                    .getOrDefault(""),
-            )
-            if (tail.isNotBlank()) {
-                finalText = tail
-                ListeningStateHolder.updateActiveMessage(tail)
-                runCatching { analyze(tail) }
-            }
+        // The tail may itself contain a complete utterance plus the start of another; feed it
+        // through normally first, then force out whatever is left open.
+        val pending = runCatching { segmenter.offer(tailAudio) }.getOrDefault(emptyList())
+        for (segment in pending) {
+            runCatching { transcribeSegment(whisper, segment) }.getOrNull()?.let { finalText = it }
+        }
+        runCatching { segmenter.flush() }.getOrNull()?.let { tail ->
+            runCatching { transcribeSegment(whisper, tail) }.getOrNull()?.let { finalText = it }
         }
 
         // Closed here rather than in onDestroy so it always happens on the thread that runs
@@ -370,11 +389,13 @@ class ListeningService : Service() {
     companion object {
         private const val TAG = "ListeningService"
         private const val WAKE_LOCK_TAG = "SentriAI:listening"
-        private const val STREAM_INTERVAL_MS = 5_000L
-        private const val SAMPLE_RATE_F = AudioRecorder.SAMPLE_RATE.toFloat()
 
-        /** Close the window off at 20 s, comfortably under Whisper's 30 s limit. */
-        private const val MAX_WINDOW_SAMPLES = AudioRecorder.SAMPLE_RATE * 20
+        /**
+         * How often the segmenter is fed. This is *not* a transcription cadence — it only sets
+         * how quickly the end of an utterance is noticed, so it wants to be well under the
+         * hangover window rather than as long as a transcription takes.
+         */
+        private const val DRAIN_INTERVAL_MS = 150L
 
         private const val EMERGENCY_LABEL = "Detected"
 
