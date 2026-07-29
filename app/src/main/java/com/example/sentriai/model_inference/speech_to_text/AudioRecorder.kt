@@ -26,6 +26,15 @@ class AudioRecorder {
 
     val isRecording: Boolean get() = recording
 
+    /**
+     * Set when the capture loop stopped because [AudioRecord.read] returned an error rather
+     * than because [signalStop] was called. Non-null means capture ended abnormally — the
+     * mic was lost (dead object, another app took it) rather than released on purpose.
+     */
+    @Volatile
+    var readError: String? = null
+        private set
+
     @SuppressLint("MissingPermission")
     fun start() {
         if (recording) return
@@ -50,11 +59,22 @@ class AudioRecorder {
         record = recorder
         recorder.startRecording()
         recording = true
+        readError = null
         thread = Thread {
             val chunk = ByteArray(bufSize)
             while (recording) {
                 val read = recorder.read(chunk, 0, chunk.size)
-                if (read > 0) synchronized(lock) { buffer.write(chunk, 0, read) }
+                when {
+                    read > 0 -> synchronized(lock) { buffer.write(chunk, 0, read) }
+                    // Negative returns are real failures (ERROR_INVALID_OPERATION,
+                    // ERROR_DEAD_OBJECT, …), not empty reads. Over a long background
+                    // session ignoring them means silently capturing nothing forever, so
+                    // record the reason and let the loop stop rather than spin.
+                    read < 0 -> {
+                        readError = "AudioRecord.read failed ($read)"
+                        recording = false
+                    }
+                }
             }
         }.also { it.start() }
     }
