@@ -371,27 +371,28 @@ private fun GuardianTopBar(
         Spacer(Modifier.weight(1f))
 
         // ── Trigger-log badge icon ──────────────────────────────────
-        Box(
-            modifier = Modifier
-                .size(38.dp)
-                .clip(CircleShape)
-                .background(SoftBlueContainer)
-                .clickable(onClick = onLogClick),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                painter = painterResource(R.drawable.ic_trigger_log),
-                contentDescription = stringResource(R.string.trigger_log_icon),
-                tint = NavyInk,
-                modifier = Modifier.size(20.dp),
-            )
+        Box(contentAlignment = Alignment.TopEnd) {
+            Box(
+                modifier = Modifier
+                    .size(38.dp)
+                    .clip(CircleShape)
+                    .background(SoftBlueContainer)
+                    .clickable(onClick = onLogClick),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_trigger_log),
+                    contentDescription = stringResource(R.string.trigger_log_icon),
+                    tint = NavyInk,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
             if (logBadgeCount > 0) {
                 Badge(
                     containerColor = Color(0xFFC62828),
                     contentColor = Color.White,
                     modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .offset(x = 2.dp, y = (-2).dp),
+                        .offset(x = 4.dp, y = (-4).dp),
                 ) {
                     Text(
                         text = logBadgeCount.toString(),

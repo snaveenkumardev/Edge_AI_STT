@@ -37,6 +37,22 @@ sealed interface TranscriptionUiState {
     data class Error(val message: String) : TranscriptionUiState
 }
 
+data class ChatMessage(
+    val id: String = java.util.UUID.randomUUID().toString(),
+    val text: String,
+    val isFinalized: Boolean = false,
+    val toolInvoked: Boolean = false,
+    val timestamp: Long = System.currentTimeMillis()
+)
+
+fun cleanTranscriptText(text: String): String {
+    return text
+        .replace(Regex("\\[.*?\\]"), "")
+        .replace(Regex("\\(.*?\\)"), "")
+        .replace(Regex("\\s+"), " ")
+        .trim()
+}
+
 class TranscriptionViewModel(app: Application) : AndroidViewModel(app) {
 
     private val recorder = AudioRecorder()
@@ -46,6 +62,33 @@ class TranscriptionViewModel(app: Application) : AndroidViewModel(app) {
 
     private val _state = MutableStateFlow<TranscriptionUiState>(TranscriptionUiState.Idle)
     val state: StateFlow<TranscriptionUiState> = _state.asStateFlow()
+
+    private val _chatMessages = MutableStateFlow<List<ChatMessage>>(emptyList())
+    val chatMessages: StateFlow<List<ChatMessage>> = _chatMessages.asStateFlow()
+
+    fun updateActiveMessage(text: String) {
+        val cleaned = cleanTranscriptText(text)
+        if (cleaned.isBlank()) return
+        val current = _chatMessages.value
+        val last = current.lastOrNull()
+        if (last != null && !last.isFinalized) {
+            _chatMessages.value = current.dropLast(1) + last.copy(text = cleaned)
+        } else {
+            _chatMessages.value = current + ChatMessage(text = cleaned)
+        }
+    }
+
+    fun finalizeActiveMessage(toolInvoked: Boolean) {
+        val current = _chatMessages.value
+        val last = current.lastOrNull()
+        if (last != null && !last.isFinalized) {
+            _chatMessages.value = current.dropLast(1) + last.copy(isFinalized = true, toolInvoked = toolInvoked)
+        }
+    }
+
+    fun clearChatHistory() {
+        _chatMessages.value = emptyList()
+    }
 
     /**
      * Signal the streaming loop to clear its committed text buffer and audio window.
@@ -74,7 +117,8 @@ class TranscriptionViewModel(app: Application) : AndroidViewModel(app) {
                     // both of which can block — keep them off the main thread.
                     val pcm = recorder.stop()
                     val m = model ?: WhisperModel.load(getApplication()).also { model = it }
-                    m.transcribe(pcm)
+                    val raw = m.transcribe(pcm)
+                    cleanTranscriptText(raw)
                 }
             }
             _state.value = result.fold(
@@ -99,6 +143,7 @@ class TranscriptionViewModel(app: Application) : AndroidViewModel(app) {
     fun startStreaming() {
         Log.d(TAG, "startStreaming() called, isRecording=${recorder.isRecording}")
         if (recorder.isRecording) return
+        clearChatHistory()
         runCatching { recorder.start() }.onFailure {
             Log.e(TAG, "mic start failed", it)
             _state.value = TranscriptionUiState.Error("Mic error: ${it.message}")
@@ -141,21 +186,19 @@ class TranscriptionViewModel(app: Application) : AndroidViewModel(app) {
         try {
             while (coroutineContext.isActive && recorder.isRecording) {
                 delay(STREAM_INTERVAL_MS)
-
-                // Check if UI requested a transcript clear after analysis
+                Log.d(TAG, "streamLoop: clearRequested = $clearRequested")
+                // Check if UI requested a transcript clear
                 if (clearRequested) {
                     clearRequested = false
                     committed.clear()
                     window = FloatArray(0)
-                    // Drain any buffered audio so it doesn't replay
-                    recorder.drain()
-                    Log.d(TAG, "tick #$tick: transcript cleared by analysis")
+                    //recorder.drain()
+                    Log.d(TAG, "tick #$tick: transcript cleared by request")
                     if (recorder.isRecording) {
                         _state.value = TranscriptionUiState.Listening("")
                     }
                     continue
                 }
-
                 val fresh = recorder.drain()
                 window += fresh
                 tick++
@@ -170,10 +213,11 @@ class TranscriptionViewModel(app: Application) : AndroidViewModel(app) {
                     continue
                 }
 
-                val partial = runCatching { m.transcribe(window) }
+                val rawPartial = runCatching { m.transcribe(window) }
                     .onFailure { Log.e(TAG, "partial transcribe failed", it) }
                     .getOrDefault("")
-                Log.d(TAG, "tick #$tick: partial='$partial' (len=${partial.length})")
+                val partial = cleanTranscriptText(rawPartial)
+                Log.d(TAG, "tick #$tick: rawPartial='$rawPartial', partial='$partial' (len=${partial.length})")
                 // A stop can land mid-tick (the delay and the transcribe above both take
                 // time); publishing Listening then would overwrite Finishing and make the
                 // UI look live again while the loop is already winding down.
@@ -193,9 +237,10 @@ class TranscriptionViewModel(app: Application) : AndroidViewModel(app) {
             window += recorder.stop()
             Log.d(TAG, "streamLoop finally: transcribing tail window=${window.size}")
             if (window.isNotEmpty()) {
-                val tail = runCatching { m.transcribe(window) }
+                val rawTail = runCatching { m.transcribe(window) }
                     .onFailure { Log.e(TAG, "final transcribe failed", it) }
                     .getOrDefault("")
+                val tail = cleanTranscriptText(rawTail)
                 if (tail.isNotBlank()) committed.append(tail.trim())
             }
             val finalText = committed.toString().trim().ifBlank { "(no speech detected)" }
@@ -231,7 +276,7 @@ class TranscriptionViewModel(app: Application) : AndroidViewModel(app) {
 
     companion object {
         private const val TAG = "TranscriptionVM"
-        private const val STREAM_INTERVAL_MS = 1_500L
+        private const val STREAM_INTERVAL_MS = 5_000L
         // Roll the window over at 20 s, comfortably under Whisper's 30 s limit.
         private const val MAX_WINDOW_SAMPLES = AudioRecorder.SAMPLE_RATE * 20
     }

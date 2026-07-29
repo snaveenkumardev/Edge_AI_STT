@@ -56,8 +56,11 @@ import com.example.sentriai.engine.EmergencyPipeline
 import com.example.sentriai.model_inference.speech_to_text.TranscriptionUiState
 import com.example.sentriai.model_inference.speech_to_text.TranscriptionViewModel
 import com.example.sentriai.ui.theme.SentriAITheme
+import androidx.compose.ui.text.style.TextAlign
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import com.example.sentriai.model_inference.speech_to_text.ChatMessage
 
 // ── Analysis status model ───────────────────────────────────────────────────
 
@@ -92,54 +95,128 @@ fun VoiceTranscriptScreen(
     modifier: Modifier = Modifier,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val chatMessages by viewModel.chatMessages.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val logEntries by triggerLogViewModel.logEntries.collectAsState()
 
     // Finishing carries no text of its own, so the last transcript we saw is held here to
     // keep it on screen while the loop transcribes its tail audio.
     var transcript by rememberSaveable { mutableStateOf("") }
-    var lastAnalyzedText by rememberSaveable { mutableStateOf("") }
+    var lastTriggeredCharIndex by rememberSaveable { mutableStateOf(-1) }
     var analysisInProgress by rememberSaveable { mutableStateOf(false) }
     var analysisStatus by rememberSaveable { mutableStateOf<String>("idle") }
+
+    var previousTranscriptText by rememberSaveable { mutableStateOf("") }
 
     LaunchedEffect(state) {
         // Update local transcript display
         when (val current = state) {
-            is TranscriptionUiState.Listening -> transcript = current.text
-            is TranscriptionUiState.Result -> transcript = current.text
+            is TranscriptionUiState.Listening -> {
+                transcript = current.text
+                if (transcript.isNotBlank()) {
+                    viewModel.updateActiveMessage(transcript)
+                }
+            }
+            is TranscriptionUiState.Result -> {
+                transcript = current.text
+                if (transcript.isNotBlank()) {
+                    viewModel.updateActiveMessage(transcript)
+                }
+            }
             is TranscriptionUiState.Preparing -> {
-                lastAnalyzedText = ""
+                lastTriggeredCharIndex = -1
                 analysisInProgress = false
                 analysisStatus = "idle"
+                previousTranscriptText = ""
             }
             else -> Unit
         }
 
-        // Run emergency safety threat analysis on every new transcript chunk
-        if (transcript.isNotBlank() && transcript != lastAnalyzedText && !analysisInProgress) {
-            lastAnalyzedText = transcript
+        // Run emergency safety threat analysis on every new transcript update
+        if (transcript.isNotBlank() && !analysisInProgress) {
             analysisInProgress = true
             analysisStatus = "analyzing"
             try {
+                var isEmergency = false
+                var newTriggerDetected = false
+
                 withContext(Dispatchers.Default) {
-                    val triggered = EmergencyPipeline.processTranscript(context, transcript)
-                    if (triggered) {
-                        analysisStatus = "emergency"
-                    } else {
-                        analysisStatus = "safe"
+                    val toolResult = com.example.sentriai.engine.FunctionGemmaEngine.analyzeTranscript(transcript)
+                    if (toolResult != null) {
+                        isEmergency = true
+                        val triggerPhrase = toolResult.triggerPhrase
+                        val matchIndex = transcript.lowercase().lastIndexOf(triggerPhrase.lowercase())
+                        if (matchIndex != -1) {
+                            val matchEndChar = matchIndex + triggerPhrase.length
+                            if (matchEndChar > lastTriggeredCharIndex) {
+                                // New safety threat detected! Trigger the alert and send SMS
+                                newTriggerDetected = true
+                                lastTriggeredCharIndex = matchEndChar
+
+                                // Attempt to send SMS
+                                val smsResult = com.example.sentriai.sms.EmergencySmsSender.sendEmergencyAlert(
+                                    context = context,
+                                    emergencyType = toolResult.emergencyType,
+                                    triggerPhrase = toolResult.triggerPhrase,
+                                    confidence = toolResult.confidence
+                                )
+
+                                // Log event to disk
+                                com.example.sentriai.data.TriggerLogStore.logEvent(
+                                    context = context,
+                                    triggerPhrase = toolResult.triggerPhrase,
+                                    emergencyType = toolResult.emergencyType,
+                                    fullTranscript = transcript,
+                                    confidenceScore = toolResult.confidence,
+                                    smsSuccess = smsResult.success,
+                                    handlerNumber = smsResult.handlerNumber,
+                                    failureReason = smsResult.failureReason
+                                )
+                            }
+                        }
                     }
                 }
+
+                if (newTriggerDetected) {
+                    analysisStatus = "emergency"
+                    viewModel.finalizeActiveMessage(toolInvoked = true)
+                    // Clear the box immediately upon triggering an emergency alert!
+                    viewModel.clearTranscript()
+                    transcript = ""
+                    previousTranscriptText = ""
+                    lastTriggeredCharIndex = -1
+                } else {
+                    analysisStatus = "safe"
+                    if (state is TranscriptionUiState.Result) {
+                        viewModel.finalizeActiveMessage(toolInvoked = false)
+                    }
+                }
+
                 // Refresh log entries so any new alert appears inline immediately
                 triggerLogViewModel.refresh()
             } catch (e: Exception) {
                 Log.e("VoiceTranscript", "Error running EmergencyPipeline: ${e.message}", e)
                 analysisStatus = "safe"
+                if (state is TranscriptionUiState.Result) {
+                    viewModel.finalizeActiveMessage(toolInvoked = false)
+                }
             } finally {
                 analysisInProgress = false
-                // Clear the transcript so only NEW speech is analyzed next
-                viewModel.clearTranscript()
-                lastAnalyzedText = ""
             }
+        } else if (transcript.isBlank() && state is TranscriptionUiState.Result) {
+            viewModel.finalizeActiveMessage(toolInvoked = false)
+        }
+    }
+
+    LaunchedEffect(transcript) {
+        if (transcript.isNotBlank()) {
+            delay(3000L)
+            viewModel.finalizeActiveMessage(toolInvoked = false)
+            viewModel.clearTranscript()
+            transcript = ""
+            previousTranscriptText = ""
+            lastTriggeredCharIndex = -1
+            analysisStatus = "safe"
         }
     }
 
@@ -153,7 +230,7 @@ fun VoiceTranscriptScreen(
 
     VoiceTranscriptContent(
         state = state,
-        transcript = transcript,
+        chatMessages = chatMessages,
         analysisStatus = currentAnalysisStatus,
         logEntries = logEntries,
         onStopClick = viewModel::stopStreaming,
@@ -165,7 +242,7 @@ fun VoiceTranscriptScreen(
 @Composable
 private fun VoiceTranscriptContent(
     state: TranscriptionUiState,
-    transcript: String,
+    chatMessages: List<ChatMessage>,
     analysisStatus: AnalysisStatus = AnalysisStatus.Idle,
     logEntries: List<TriggerLogEntry> = emptyList(),
     onStopClick: () -> Unit,
@@ -194,13 +271,14 @@ private fun VoiceTranscriptContent(
 
             Spacer(Modifier.height(14.dp))
 
-            TranscriptCard(
-                transcript = transcript,
+            // Dynamic weights to split space proportionally and prevent overflows
+            val transcriptWeight = if (logEntries.isEmpty()) 1f else 0.55f
+
+            ChatTranscriptCard(
+                chatMessages = chatMessages,
                 error = error,
                 isLive = isLive,
-                // Takes the space between the status line and the action button so the
-                // button stays put as the text grows.
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.weight(transcriptWeight),
             )
 
             Spacer(Modifier.height(12.dp))
@@ -209,15 +287,13 @@ private fun VoiceTranscriptContent(
             AnalysisStatusChip(status = analysisStatus)
 
             // ── Inline Alert Log ────────────────────────────────────────
-            AnimatedVisibility(
-                visible = logEntries.isNotEmpty(),
-                enter = fadeIn() + slideInVertically { it / 2 },
-                exit = fadeOut(),
-            ) {
-                InlineAlertLog(entries = logEntries)
+            if (logEntries.isNotEmpty()) {
+                InlineAlertLog(
+                    entries = logEntries,
+                    modifier = Modifier.weight(0.45f),
+                )
+                Spacer(Modifier.height(12.dp))
             }
-
-            Spacer(Modifier.height(12.dp))
 
             TranscriptActionButton(
                 isLive = isLive,
@@ -280,8 +356,11 @@ private fun AnalysisStatusChip(status: AnalysisStatus) {
 // ── Inline Alert Log (recent entries) ───────────────────────────────────────
 
 @Composable
-private fun InlineAlertLog(entries: List<TriggerLogEntry>) {
-    Column(modifier = Modifier.fillMaxWidth()) {
+private fun InlineAlertLog(
+    entries: List<TriggerLogEntry>,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier = modifier.fillMaxWidth()) {
         // Section header
         Text(
             text = stringResource(R.string.voice_transcript_alert_log_label).uppercase(),
@@ -292,10 +371,12 @@ private fun InlineAlertLog(entries: List<TriggerLogEntry>) {
             modifier = Modifier.padding(bottom = 8.dp),
         )
 
-        // Show latest 3 entries max to keep the screen compact
-        val recentEntries = entries.take(3)
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            recentEntries.forEach { entry ->
+        // Show entries in a scrollable list inside allocated weight space
+        LazyColumn(
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            items(entries, key = { it.id }) { entry ->
                 TriggerLogRow(entry)
             }
         }
@@ -361,16 +442,18 @@ private fun StatusLine(state: TranscriptionUiState) {
 }
 
 @Composable
-private fun TranscriptCard(
-    transcript: String,
+private fun ChatTranscriptCard(
+    chatMessages: List<ChatMessage>,
     error: String?,
     isLive: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    val scrollState = rememberScrollState()
-    // Follow the tail of the transcript as new text arrives, the way a live caption does.
-    LaunchedEffect(transcript) {
-        if (transcript.isNotEmpty()) scrollState.animateScrollTo(scrollState.maxValue)
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+
+    LaunchedEffect(chatMessages.size) {
+        if (chatMessages.isNotEmpty()) {
+            listState.animateScrollToItem(chatMessages.size - 1)
+        }
     }
 
     Column(
@@ -389,7 +472,7 @@ private fun TranscriptCard(
             letterSpacing = 0.9.sp,
         )
         Spacer(Modifier.height(10.dp))
-        Column(modifier = Modifier.verticalScroll(scrollState)) {
+        Box(modifier = Modifier.weight(1f)) {
             when {
                 error != null -> Text(
                     text = error,
@@ -397,23 +480,98 @@ private fun TranscriptCard(
                     fontSize = 15.sp,
                     lineHeight = 23.sp,
                 )
-                transcript.isBlank() -> Text(
-                    text = stringResource(
-                        if (isLive) R.string.voice_transcript_waiting
-                        else R.string.voice_transcript_status_stopped,
-                    ),
-                    color = MutedText,
-                    fontSize = 15.sp,
-                    lineHeight = 23.sp,
-                )
-                else -> Text(
-                    text = transcript,
-                    color = NavyInk,
-                    fontSize = 17.sp,
-                    lineHeight = 26.sp,
-                )
+                chatMessages.isEmpty() -> Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = stringResource(
+                            if (isLive) R.string.voice_transcript_waiting
+                            else R.string.voice_transcript_status_stopped,
+                        ),
+                        color = MutedText,
+                        fontSize = 15.sp,
+                        lineHeight = 23.sp,
+                        textAlign = TextAlign.Center
+                    )
+                }
+                else -> {
+                    LazyColumn(
+                        state = listState,
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        items(chatMessages, key = { it.id }) { message ->
+                            ChatMessageItem(message = message)
+                        }
+                    }
+                }
             }
         }
+    }
+}
+
+@Composable
+private fun ChatMessageItem(
+    message: ChatMessage,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.End
+    ) {
+        Box(
+            modifier = Modifier
+                .clip(
+                    RoundedCornerShape(
+                        topStart = 16.dp,
+                        topEnd = 16.dp,
+                        bottomStart = 16.dp,
+                        bottomEnd = 2.dp
+                    )
+                )
+                .background(if (message.toolInvoked) Color(0xFFFEE2E2) else SoftBlueContainer)
+                .border(
+                    width = 1.dp,
+                    color = if (message.toolInvoked) Color(0xFFFCA5A5) else CardBorder,
+                    shape = RoundedCornerShape(
+                        topStart = 16.dp,
+                        topEnd = 16.dp,
+                        bottomStart = 16.dp,
+                        bottomEnd = 2.dp
+                    )
+                )
+                .padding(horizontal = 14.dp, vertical = 10.dp)
+        ) {
+            Text(
+                text = message.text,
+                color = NavyInk,
+                fontSize = 15.sp,
+                lineHeight = 22.sp
+            )
+        }
+
+        Spacer(Modifier.height(4.dp))
+
+        val statusText = when {
+            !message.isFinalized -> "analyzing..."
+            message.toolInvoked -> "- tool invoked"
+            else -> "- no tool invoked"
+        }
+        val statusColor = when {
+            !message.isFinalized -> AccentBlue
+            message.toolInvoked -> ErrorRed
+            else -> MutedText
+        }
+        val statusFontWeight = if (message.toolInvoked) FontWeight.Bold else FontWeight.Normal
+
+        Text(
+            text = statusText,
+            color = statusColor,
+            fontSize = 11.sp,
+            fontWeight = statusFontWeight,
+            modifier = Modifier.padding(end = 4.dp)
+        )
     }
 }
 
@@ -467,7 +625,9 @@ private fun VoiceTranscriptListeningPreview() {
     SentriAITheme(dynamicColor = false) {
         VoiceTranscriptContent(
             state = TranscriptionUiState.Listening("Hello, I am walking home from the station now."),
-            transcript = "Hello, I am walking home from the station now.",
+            chatMessages = listOf(
+                ChatMessage(text = "Hello, I am walking home from the station now.", isFinalized = false)
+            ),
             analysisStatus = AnalysisStatus.Analyzing,
             onStopClick = {},
             onBack = {},
@@ -481,7 +641,9 @@ private fun VoiceTranscriptStoppedPreview() {
     SentriAITheme(dynamicColor = false) {
         VoiceTranscriptContent(
             state = TranscriptionUiState.Result("Hello, I am walking home from the station now."),
-            transcript = "Hello, I am walking home from the station now.",
+            chatMessages = listOf(
+                ChatMessage(text = "Hello, I am walking home from the station now.", isFinalized = true, toolInvoked = false)
+            ),
             analysisStatus = AnalysisStatus.Safe("No threat detected"),
             onStopClick = {},
             onBack = {},
