@@ -110,7 +110,7 @@ fun ProfileSettingsScreen(onProfileSaved: () -> Unit = {}) {
                     )
                     Spacer(modifier = Modifier.width(12.dp))
                     Text(
-                        text = "Guardian AI",
+                        text = "Profile Settings",
                         style = MaterialTheme.typography.titleLarge.copy(
                             fontWeight = FontWeight.Bold,
                             fontFamily = GoogleSansFontFamily
@@ -470,17 +470,16 @@ fun ProfileSettingsScreen(onProfileSaved: () -> Unit = {}) {
                     }
                 },
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 24.dp)
-                    .height(56.dp)
-                    .shadow(elevation = 8.dp, shape = RoundedCornerShape(16.dp)),
+                    .width(200.dp)
+                    .height(56.dp),
                 shape = RoundedCornerShape(16.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = darkNavy
                 ),
                 elevation = ButtonDefaults.buttonElevation(
                     defaultElevation = 8.dp,
-                    pressedElevation = 2.dp
+                    pressedElevation = 14.dp,
+                    disabledElevation = 0.dp
                 )
             ) {
                 Row(
@@ -491,7 +490,7 @@ fun ProfileSettingsScreen(onProfileSaved: () -> Unit = {}) {
                         text = "Save Profile",
                         style = MaterialTheme.typography.titleMedium.copy(
                             fontWeight = FontWeight.Bold,
-                            fontSize = 20.sp,
+                            fontSize = 16.sp,
                             fontFamily = GoogleSansFontFamily
                         ),
                         color = Color.White

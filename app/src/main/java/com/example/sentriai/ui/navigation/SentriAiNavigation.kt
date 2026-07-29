@@ -86,6 +86,7 @@ fun SentriAiNavHost(
                 // Back leaves the stream running — the assistant stays armed and the
                 // activation screen keeps showing it as active.
                 onBack = { navController.popBackStack() },
+                onProfileClick = { navController.navigate(Routes.PROFILE) },
                 viewModel = transcriptionViewModel,
                 triggerLogViewModel = triggerLogViewModel,
             )
@@ -94,6 +95,7 @@ fun SentriAiNavHost(
         composable(Routes.ALERT_HISTORY) {
             AlertHistoryScreen(
                 onBack = { navController.popBackStack() },
+                onProfileClick = { navController.navigate(Routes.PROFILE) },
                 triggerLogViewModel = triggerLogViewModel,
             )
         }

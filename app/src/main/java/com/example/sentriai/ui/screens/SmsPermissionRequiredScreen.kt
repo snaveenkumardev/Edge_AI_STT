@@ -134,11 +134,15 @@ fun SmsPermissionRequiredScreen(
         Button(
             onClick = onRequestPermission,
             modifier = Modifier
-                .fillMaxWidth()
-                .height(56.dp)
-                .shadow(elevation = 4.dp, shape = RoundedCornerShape(16.dp)),
+                .width(200.dp)
+                .height(56.dp),
             shape = RoundedCornerShape(16.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = NavyInk)
+            colors = ButtonDefaults.buttonColors(containerColor = NavyInk),
+            elevation = ButtonDefaults.buttonElevation(
+                defaultElevation = 8.dp,
+                pressedElevation = 14.dp,
+                disabledElevation = 0.dp
+            )
         ) {
             Text(
                 text = stringResource(R.string.sms_permission_grant_button),

@@ -495,9 +495,9 @@ private fun PowerButton(
         onClick = onClick,
         enabled = !isStopping && !isPreparing,
         modifier = Modifier
-            .fillMaxWidth()
-            .height(74.dp),
-        shape = RoundedCornerShape(37.dp),
+            .width(200.dp)
+            .height(56.dp),
+        shape = RoundedCornerShape(28.dp),
         colors = ButtonDefaults.buttonColors(
             containerColor = containerColor,
             contentColor = Color.White,
@@ -506,8 +506,12 @@ private fun PowerButton(
             disabledContainerColor = containerColor,
             disabledContentColor = Color.White,
         ),
-        elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp),
-        contentPadding = PaddingValues(start = 28.dp, end = 11.dp),
+        elevation = ButtonDefaults.buttonElevation(
+            defaultElevation = 8.dp,
+            pressedElevation = 14.dp,
+            disabledElevation = 0.dp
+        ),
+        contentPadding = PaddingValues(start = 20.dp, end = 8.dp),
     ) {
         Text(
             text = stringResource(
@@ -518,14 +522,14 @@ private fun PowerButton(
                     else -> R.string.ai_assistant_power_off
                 },
             ),
-            fontSize = 17.sp,
-            fontWeight = FontWeight.SemiBold,
-            letterSpacing = 0.3.sp,
+            fontSize = 16.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 0.5.sp,
         )
         Spacer(Modifier.weight(1f))
         Box(
             modifier = Modifier
-                .size(52.dp)
+                .size(38.dp)
                 .clip(CircleShape)
                 .background(Color.White),
             contentAlignment = Alignment.Center,
@@ -538,7 +542,7 @@ private fun PowerButton(
                     else R.string.ai_assistant_activate,
                 ),
                 tint = containerColor,
-                modifier = Modifier.size(25.dp),
+                modifier = Modifier.size(20.dp),
             )
         }
     }

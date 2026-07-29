@@ -2,7 +2,7 @@
     <string name="app_name">Sentri AI</string>
 
     <string name="profile">Profile</string>
-    <string name="ai_assistant_avatar">Guardian AI assistant</string>
+    <string name="ai_assistant_avatar">Sentri AI</string>
     <string name="ai_assistant_verified_badge">Verified assistant</string>
     <string name="ai_assistant_status_ready">Assistant Ready</string>
     <string name="ai_assistant_status_active">Assistant Active</string>
@@ -58,7 +58,7 @@
     <!-- Analysis status (VoiceTranscriptScreen) -->
     <string name="voice_transcript_analyzing">Analyzing transcript…</string>
     <string name="voice_transcript_no_threat">No threat detected</string>
-    <string name="voice_transcript_emergency_detected">⚠️ Emergency: %1$s</string>
+    <string name="voice_transcript_emergency_detected">Emergency: %1$s</string>
     <string name="voice_transcript_analysis_label">AI Analysis</string>
     <string name="voice_transcript_alert_log_label">Alert Log</string>
 

@@ -62,6 +62,7 @@ fun TriggerLogSheetContent(
     entries: List<TriggerLogEntry>,
     onClearLog: () -> Unit,
     modifier: Modifier = Modifier,
+    showHeader: Boolean = true,
 ) {
     var showClearDialog by remember { mutableStateOf(false) }
 
@@ -71,45 +72,47 @@ fun TriggerLogSheetContent(
             .background(SheetBackground)
             .padding(bottom = 24.dp),
     ) {
-        // ── Header ──────────────────────────────────────────────────────
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                painter = painterResource(R.drawable.ic_trigger_log),
-                contentDescription = null,
-                tint = NavyInk,
-                modifier = Modifier.size(22.dp),
-            )
-            Spacer(Modifier.width(10.dp))
-            Text(
-                text = stringResource(R.string.trigger_log_title),
-                color = NavyInk,
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Bold,
-            )
-            if (entries.isNotEmpty()) {
-                Spacer(Modifier.width(8.dp))
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(SoftBlueContainer)
-                        .padding(horizontal = 8.dp, vertical = 2.dp),
-                ) {
-                    Text(
-                        text = entries.size.toString(),
-                        color = AccentBlue,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold,
-                    )
+        if (showHeader) {
+            // ── Header ──────────────────────────────────────────────────────
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_trigger_log),
+                    contentDescription = null,
+                    tint = NavyInk,
+                    modifier = Modifier.size(22.dp),
+                )
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    text = stringResource(R.string.trigger_log_title),
+                    color = NavyInk,
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+                if (entries.isNotEmpty()) {
+                    Spacer(Modifier.width(8.dp))
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(SoftBlueContainer)
+                            .padding(horizontal = 8.dp, vertical = 2.dp),
+                    ) {
+                        Text(
+                            text = entries.size.toString(),
+                            color = AccentBlue,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
                 }
             }
-        }
 
-        HorizontalDivider(color = CardBorder, thickness = 1.dp)
+            HorizontalDivider(color = CardBorder, thickness = 1.dp)
+        }
 
         // ── Body ────────────────────────────────────────────────────────
         if (entries.isEmpty()) {
