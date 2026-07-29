@@ -64,4 +64,12 @@
 
     <!-- Alert History (full-screen page) -->
     <string name="alert_history_title">Alert History</string>
+
+    <!-- SMS Permission Required Screen -->
+    <string name="sms_permission_required_title">SMS Permission Required</string>
+    <string name="sms_permission_required_desc">Guardian AI requires SMS permission to automatically alert your emergency contacts when distress is detected.</string>
+    <string name="sms_permission_card_reason_title">Why is this required?</string>
+    <string name="sms_permission_card_reason_1">Immediate safety response</string>
+    <string name="sms_permission_card_reason_2">Notify handlers with your location &amp; status</string>
+    <string name="sms_permission_grant_button">Grant SMS Permission</string>
 </resources>
