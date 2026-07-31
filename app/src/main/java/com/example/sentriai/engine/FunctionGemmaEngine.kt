@@ -8,6 +8,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Result returned when FunctionGemma decides to invoke [FUNCTION_NAME].
@@ -32,6 +33,18 @@ object FunctionGemmaEngine {
 
     const val DEFAULT_MODEL_PATH = "/data/local/tmp/llm/functiongemma-270m-it.task"
     private const val FUNCTION_NAME = "trigger_emergency_alert"
+    private const val PHRASE_TRIGGER_FUNCTION_NAME = "trigger_phrase_alert"
+    private const val TRIGGER_PHRASE = "Mimi"
+    private const val PHRASE_TRIGGER_THRESHOLD = 3
+    // Whisper's mis-transcriptions of "Mimi" swap only the i/e vowel slots (Mime, Memi, Meme) —
+    // acoustically close front vowels — so the match is restricted to those four combinations
+    // and deliberately excludes other m+vowel+m+vowel words like "Mama" or "Momo".
+    private val phraseOccurrenceRegex = Regex("\\bm[ie]m[ie]\\b", RegexOption.IGNORE_CASE)
+
+    // Each transcript passed to analyzeTranscript is one isolated VAD utterance with no memory
+    // of prior calls, so counting repetitions of the safe-word phrase across separate utterances
+    // has to be tracked here rather than inside the (memoryless) LLM prompt.
+    private val phraseOccurrenceCount = AtomicInteger(0)
 
     @Volatile
     private var llmInference: LlmInference? = null
@@ -145,6 +158,8 @@ object FunctionGemmaEngine {
      * @return [ToolCallResult] if an emergency was detected by FunctionGemma, or null otherwise.
      */
     suspend fun analyzeTranscript(transcript: String): ToolCallResult? = withContext(Dispatchers.Default) {
+        checkPhraseTrigger(transcript)?.let { return@withContext it }
+
         val inference = llmInference
         if (inference == null || !isInitialized) {
             Log.w(TAG, "Engine not ready. Analyzing transcript with heuristic backup.")
@@ -211,7 +226,7 @@ object FunctionGemmaEngine {
             $toolDeclaration
             <start_of_turn>user
             Analyze this speech transcript for elderly safety threats: "$transcript"
-            If safety threat detected, call $FUNCTION_NAME. Otherwise reply NO_EMERGENCY.<end_of_turn>
+            If safety threat detected, call $FUNCTION_NAME. If the user repeats "$TRIGGER_PHRASE" $PHRASE_TRIGGER_THRESHOLD or more times, call $PHRASE_TRIGGER_FUNCTION_NAME. Otherwise reply NO_EMERGENCY.<end_of_turn>
             <start_of_turn>model
         """.trimIndent()
     }
@@ -247,7 +262,7 @@ object FunctionGemmaEngine {
                 val triggerPhrase = args.optString("trigger_phrase", originalTranscript)
                 val confidence = args.optDouble("confidence", 0.95).toFloat()
 
-                if (callName == FUNCTION_NAME || args.has("emergency_type")) {
+                if (callName == FUNCTION_NAME || callName == PHRASE_TRIGGER_FUNCTION_NAME || args.has("emergency_type")) {
                     return ToolCallResult(
                         emergencyType = sanitizeEmergencyType(emergencyType),
                         triggerPhrase = triggerPhrase,
@@ -261,6 +276,32 @@ object FunctionGemmaEngine {
 
         // Fallback check if response mentions emergency keyword
         return heuristicBackupAnalysis(originalTranscript)
+    }
+
+    /**
+     * Deterministically tracks repetitions of the safe-word trigger phrase ("$TRIGGER_PHRASE")
+     * across successive calls. A single VAD utterance may contain the phrase multiple times, or
+     * the user may repeat it across several separate utterances with pauses between — either way
+     * this counts toward the same streak. Fires the same emergency action as [FUNCTION_NAME] once
+     * the phrase has been heard [PHRASE_TRIGGER_THRESHOLD] times, and resets the streak whenever a
+     * transcript doesn't contain the phrase at all.
+     */
+    private fun checkPhraseTrigger(transcript: String): ToolCallResult? {
+        val occurrences = phraseOccurrenceRegex.findAll(transcript).count()
+        if (occurrences == 0) {
+            phraseOccurrenceCount.set(0)
+            return null
+        }
+
+        val total = phraseOccurrenceCount.addAndGet(occurrences)
+        if (total < PHRASE_TRIGGER_THRESHOLD) return null
+
+        phraseOccurrenceCount.set(0)
+        return ToolCallResult(
+            emergencyType = "Distress Phrase",
+            triggerPhrase = "\"$TRIGGER_PHRASE\" repeated ${total}x",
+            confidence = 0.98f
+        )
     }
 
     /**
@@ -301,6 +342,7 @@ object FunctionGemmaEngine {
     private fun sanitizeEmergencyType(type: String): String {
         val lower = type.lowercase()
         return when {
+            lower.contains("phrase") || lower.contains(TRIGGER_PHRASE.lowercase()) -> "Distress Phrase"
             lower.contains("fall") -> "Fall"
             lower.contains("medical") || lower.contains("distress") || lower.contains("pain") -> "Medical Distress"
             else -> "Help Call"
