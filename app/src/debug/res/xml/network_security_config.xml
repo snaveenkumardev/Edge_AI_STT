@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Debug builds only. Permits cleartext so the model downloader can talk to a plain-HTTP server
+  on the developer's machine (`python3 -m http.server` in model-hosting/), which is the quickest
+  way to exercise the download path without uploading ~485 MB to real storage first.
+
+  This is deliberately not restricted to a list of hosts: the useful address changes with where
+  the app runs — 10.0.2.2 from the emulator, a LAN IP from a physical device, and that LAN IP
+  moves between networks.
+
+  Release builds do not merge this file, so they stay HTTPS-only.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

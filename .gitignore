@@ -13,3 +13,7 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+# Model files served to the app at first launch, not shipped in the APK.
+# Upload the contents of model-hosting/ to whatever storage MODEL_BASE_URL points at.
+/model-hosting/

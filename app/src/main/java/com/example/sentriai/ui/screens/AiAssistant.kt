@@ -297,6 +297,10 @@ private fun AiAssistantActivateContent(
 
             EngineStatusBadge(engineState = engineState, errorMessage = engineErrorMessage)
 
+            // Sits directly under the badge on purpose: the badge is what tells you a model is
+            // missing, so the way to fetch it belongs next to it. Debug builds only.
+            HuggingFaceDownloadCard(modifier = Modifier.padding(top = 12.dp))
+
             Spacer(Modifier.height(16.dp))
 
             Row(
@@ -624,6 +628,11 @@ private fun EngineStatusBadge(engineState: EngineState, errorMessage: String? = 
             stringResource(R.string.engine_status_ready),
             PowerOnGreen,
             Color(0xFFDCFCE7)
+        )
+        EngineState.DEGRADED -> Triple(
+            errorMessage ?: stringResource(R.string.engine_status_degraded),
+            Color(0xFFD97706), // Amber
+            Color(0xFFFEF3C7)
         )
         EngineState.UNAVAILABLE -> Triple(
             errorMessage ?: stringResource(R.string.engine_status_unavailable),

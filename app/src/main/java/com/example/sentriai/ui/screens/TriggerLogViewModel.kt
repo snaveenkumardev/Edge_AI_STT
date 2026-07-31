@@ -6,17 +6,22 @@ import androidx.lifecycle.viewModelScope
 import com.example.sentriai.data.TriggerLogEntry
 import com.example.sentriai.data.TriggerLogStore
 import com.example.sentriai.engine.EmergencyPipeline
-import com.example.sentriai.engine.FunctionGemmaEngine
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-/** Represents the readiness state of the on-device FunctionGemma model engine. */
+/** Represents the readiness state of the on-device emergency detection models. */
 enum class EngineState {
     LOADING,
+
+    /** Classifier and tool-call models both loaded. */
     READY,
+
+    /** Classifier LLM absent — only the safe word can raise an alert. */
+    DEGRADED,
+
     UNAVAILABLE,
     ERROR
 }
@@ -44,18 +49,21 @@ class TriggerLogViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     /**
-     * Initializes the FunctionGemma 270M engine asynchronously.
+     * Loads the detection and tool-call models asynchronously.
+     *
+     * A missing classifier is reported as DEGRADED rather than UNAVAILABLE: the phrase trigger
+     * still works, so the user can still summon help deliberately.
      */
     fun initEngine() {
         viewModelScope.launch(Dispatchers.IO) {
             _engineState.value = EngineState.LOADING
-            val success = EmergencyPipeline.initialize(getApplication())
-            if (success) {
+            val fullyLoaded = EmergencyPipeline.initialize(getApplication())
+            if (fullyLoaded) {
                 _engineState.value = EngineState.READY
                 _engineErrorMessage.value = null
             } else {
-                _engineState.value = EngineState.UNAVAILABLE
-                _engineErrorMessage.value = FunctionGemmaEngine.lastError ?: "Model initialization failed"
+                _engineState.value = EngineState.DEGRADED
+                _engineErrorMessage.value = EmergencyPipeline.statusMessage()
             }
         }
     }

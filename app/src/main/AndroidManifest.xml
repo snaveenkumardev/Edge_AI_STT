@@ -6,6 +6,14 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
     <!--
+      Models are downloaded on first launch rather than bundled: together they are close to
+      1 GB, which is past what can ship in an APK. Nothing else in the app uses the network —
+      transcription and emergency detection both run fully on device.
+    -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!--
       Listening continues while the app is backgrounded or the screen is off. Without a
       microphone-type foreground service Android returns silence (not an error) to a
       background AudioRecord, so the whole pipeline would run against zeros.

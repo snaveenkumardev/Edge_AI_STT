@@ -50,8 +50,17 @@
     <string name="trigger_log_clear_no">Cancel</string>
 
     <!-- FunctionGemma Engine Status -->
-    <string name="engine_status_loading">Loading FunctionGemma 270M…</string>
-    <string name="engine_status_ready">FunctionGemma 270M Ready</string>
+    <string name="model_setup_title">Setting up</string>
+    <string name="model_setup_desc">SentriAI is downloading the models it runs on. This happens once — afterwards everything works offline, and nothing you say leaves the device.</string>
+    <string name="model_setup_checking">Checking what is already downloaded…</string>
+    <string name="model_setup_ready">All models ready</string>
+    <string name="model_setup_failed_title">Download interrupted</string>
+    <string name="model_setup_resume_hint">Retrying picks up where it stopped — you will not have to download the whole file again.</string>
+    <string name="model_setup_retry">Try again</string>
+
+    <string name="engine_status_loading">Loading detection models…</string>
+    <string name="engine_status_ready">Detection models ready</string>
+    <string name="engine_status_degraded">Classifier missing — safe word only</string>
     <string name="engine_status_unavailable">Model absent (/data/local/tmp/llm/)</string>
     <string name="engine_status_error">Engine initialization error</string>
 

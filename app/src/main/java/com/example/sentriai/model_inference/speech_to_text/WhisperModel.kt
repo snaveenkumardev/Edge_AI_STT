@@ -2,6 +2,9 @@ package com.example.sentriai.model_inference.speech_to_text
 
 import android.content.Context
 import android.util.Log
+import com.example.sentriai.models.ModelAsset
+import com.example.sentriai.models.ModelCatalog
+import com.example.sentriai.models.ModelStore
 import org.pytorch.executorch.EValue
 import org.pytorch.executorch.Module
 import org.pytorch.executorch.Tensor
@@ -80,6 +83,7 @@ class WhisperModel private constructor(
         }
 
         val generated = ArrayList<Int>()
+        var looped = false
         for (step in 0 until maxNewTokens) {
             val next = argmax(lastLogits!!)
             if (step < 3) {
@@ -87,11 +91,31 @@ class WhisperModel private constructor(
             }
             if (tokenizer.isEndOfText(next)) break
             generated.add(next)
+
+            // Greedy decoding with no repetition penalty falls into a cycle when the audio
+            // carries no clear speech — it emitted "Hello." 112 times on one 15 s segment of
+            // room noise, ran to the token cap, and that transcript reached the classifier and
+            // triggered a live SMS. Stop as soon as the cycle is unmistakable.
+            if (isLooping(generated)) {
+                looped = true
+                break
+            }
+
             lastLogits = decoderStep(next, encoderOut, position)
             position++
         }
-        Log.d(TAG, "decode: generated ${generated.size} tokens=${generated.take(12)}")
-        return generated.toIntArray()
+
+        if (looped) {
+            Log.w(TAG, "decode: repetition loop after ${generated.size} tokens — trimming")
+        } else if (generated.size >= maxNewTokens) {
+            // Real speech in a 15 s window is well under 100 tokens, so reaching the cap is
+            // itself evidence the output is not a faithful transcript.
+            Log.w(TAG, "decode: hit the $maxNewTokens token cap; output is likely hallucinated")
+        }
+
+        val trimmed = trimRepetition(generated)
+        Log.d(TAG, "decode: generated ${trimmed.size} tokens=${trimmed.take(12)}")
+        return trimmed.toIntArray()
     }
 
     private fun decoderStep(tokenId: Int, encoderOut: Tensor, position: Int): FloatArray {
@@ -128,19 +152,76 @@ class WhisperModel private constructor(
         private const val SAMPLE_RATE = 16_000
         private const val SAMPLES_30S = SAMPLE_RATE * 30
 
-        const val MODEL_ASSET = "model.pte"
-        const val PREPROCESSOR_ASSET = "whisper_preprocessor.pte"
-        const val TOKENIZER_ASSET = "tokenizer.json"
+        /**
+         * How many identical repeats of a token cycle prove a loop rather than emphasis.
+         *
+         * Four is deliberately generous. Someone in real distress does say "help me help me
+         * help me", and cutting at two would treat a genuine cry for help as a glitch.
+         */
+        private const val LOOP_REPEATS = 4
+
+        /** Copies of a repeated cycle kept after trimming. */
+        private const val KEEP_REPEATS = 2
+
+        /** Longest cycle considered — a repeated word or clause, not a repeated paragraph. */
+        private const val MAX_CYCLE_TOKENS = 12
+
+        /** True once the tail of [tokens] is one short cycle repeated [LOOP_REPEATS] times. */
+        internal fun isLooping(tokens: List<Int>): Boolean {
+            for (cycle in 1..MAX_CYCLE_TOKENS) {
+                val needed = cycle * LOOP_REPEATS
+                if (tokens.size < needed) break
+                val tail = tokens.subList(tokens.size - needed, tokens.size)
+                val unit = tail.subList(0, cycle)
+                val repeated = (1 until LOOP_REPEATS).all { r ->
+                    tail.subList(r * cycle, (r + 1) * cycle) == unit
+                }
+                if (repeated) return true
+            }
+            return false
+        }
 
         /**
-         * Load the model. Assets are copied to filesDir first because ExecuTorch's
-         * [Module] loads from a filesystem path, not an asset stream. SoLoader must
-         * already be initialized (see SafetyModeApp).
+         * Collapses a repeated tail down to [KEEP_REPEATS] copies.
+         *
+         * Trimming rather than discarding is the safety-relevant choice: the repeated content
+         * may itself be the emergency. "help me" six times becomes "help me help me", which
+         * still says exactly what it needs to, while "Hello." a hundred times stops being the
+         * degenerate input that pushed the classifier into calling it a medical emergency.
+         */
+        internal fun trimRepetition(tokens: List<Int>): List<Int> {
+            for (cycle in 1..MAX_CYCLE_TOKENS) {
+                if (tokens.size < cycle * LOOP_REPEATS) break
+                val unit = tokens.subList(tokens.size - cycle, tokens.size)
+
+                var repeats = 0
+                var end = tokens.size
+                while (end - cycle >= 0 && tokens.subList(end - cycle, end) == unit) {
+                    repeats++
+                    end -= cycle
+                }
+
+                if (repeats >= LOOP_REPEATS) {
+                    return tokens.subList(0, end + cycle * KEEP_REPEATS)
+                }
+            }
+            return tokens
+        }
+
+        /**
+         * Load the model from the files [ModelRepository] downloaded on first launch.
+         *
+         * ExecuTorch's [Module] loads from a filesystem path, so [ModelStore] is what turns a
+         * catalog entry into one — extracting from `assets/` instead if you chose to bundle a
+         * model anyway. SoLoader must already be initialized (see SafetyModeApp).
+         *
+         * @throws IllegalStateException if a model is missing, which means the setup screen
+         *   was bypassed — callers surface the message rather than retrying.
          */
         fun load(context: Context): WhisperModel {
-            val modelPath = copyAsset(context, MODEL_ASSET)
-            val preprocPath = copyAsset(context, PREPROCESSOR_ASSET)
-            val tokenizerFile = copyAsset(context, TOKENIZER_ASSET)
+            val preprocPath = require(context, ModelCatalog.WHISPER_PREPROCESSOR)
+            val modelPath = require(context, ModelCatalog.WHISPER_MODEL)
+            val tokenizerFile = require(context, ModelCatalog.WHISPER_TOKENIZER)
 
             Log.i(TAG, "Loading ExecuTorch modules")
             val preprocessor = Module.load(preprocPath.absolutePath)
@@ -149,23 +230,9 @@ class WhisperModel private constructor(
             return WhisperModel(preprocessor, model, tokenizer)
         }
 
-        private fun copyAsset(context: Context, name: String): File {
-            val outFile = File(context.filesDir, name)
-            // Uncompressed assets (.pte, via noCompress) expose a real length we can use
-            // as a cheap staleness check; compressed assets (tokenizer.json) don't, so
-            // for those we just copy when the file is missing.
-            val assetSize = runCatching {
-                context.assets.openFd(name).use { it.length }
-            }.getOrNull()
-            if (outFile.exists() &&
-                (assetSize == null || outFile.length() == assetSize)
-            ) {
-                return outFile
+        private fun require(context: Context, asset: ModelAsset): File =
+            ModelStore.resolve(context, asset).getOrElse {
+                throw IllegalStateException("${asset.displayName} is not available: ${it.message}", it)
             }
-            context.assets.open(name).use { input ->
-                outFile.outputStream().use { output -> input.copyTo(output) }
-            }
-            return outFile
-        }
     }
 }
